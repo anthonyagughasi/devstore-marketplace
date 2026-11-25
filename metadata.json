@@ -1,0 +1,8 @@
+{
+  "name": "DevStore",
+  "description": "International multi-vendor marketplace for physical products and licensed digital assets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

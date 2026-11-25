@@ -1,0 +1,1098 @@
+# MASTER BUILD PROMPT — DEVSTORE
+## Full-Scale International Multi-Vendor E-Commerce Marketplace
+
+Act as a senior software architect, principal full-stack engineer, UI/UX designer, database architect, security engineer and QA engineer.
+
+Your task is to design and build **DevStore**, a production-oriented, full-stack, international multi-vendor e-commerce marketplace supporting physical and digital products.
+
+This is not a landing-page project, a static prototype or a simple shopping cart. It is a complete marketplace application with distinct customer, vendor and administrator experiences.
+
+Build a scalable, modular, secure application with functional features, persistent data, real authentication, proper authorization, server-side business logic and a deployment-ready architecture.
+
+---
+
+# 1. PROJECT IDENTITY
+
+Product name: DevStore
+
+Product description: An international multi-vendor marketplace for physical and digital products.
+
+Business model: Marketplace connecting independent sellers, businesses and customers.
+
+Inspiration:
+- Amazon
+- Jumia
+- Temu
+- Etsy
+- SellAuth
+
+DevStore should combine the convenience of a general e-commerce marketplace with a specialized digital products marketplace.
+
+The digital products department should have its own identity and dedicated shopping experience while remaining part of the larger DevStore ecosystem.
+
+Target audience:
+- Individual online sellers.
+- Small and medium-sized businesses.
+- Digital creators.
+- Software developers.
+- Designers.
+- Customers shopping internationally.
+
+The platform must be designed with worldwide usage in mind, accommodating all sellers and customers internationally, supporting international customers, currencies and payment providers.
+
+# 2. TECHNOLOGY AND ARCHITECTURE
+
+First, inspect your available development environment and determine which technologies you can implement reliably.
+
+Preferred technologies:
+
+Frontend:
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+
+Backend:
+- Next.js server-side architecture or a properly structured Node.js backend.
+- RESTful API architecture where appropriate.
+
+Database:
+- PostgreSQL preferred.
+- Prisma or Drizzle ORM preferred.
+
+Authentication:
+- Better Auth or Auth.js.
+- Firebase Authentication is acceptable if it integrates more reliably with your environment.
+
+Storage:
+- Cloudflare R2 or another S3-compatible storage provider.
+- Firebase Storage is an acceptable alternative.
+
+Payments:
+- Paystack.
+- Flutterwave.
+
+Email:
+- Resend or another compatible transactional email provider.
+
+Deployment:
+- Must be compatible with Vercel.
+
+IMPORTANT TECHNOLOGY RULE:
+
+Do not force a technology that your development environment cannot support.
+
+If Next.js, PostgreSQL, Prisma, Better Auth or another preferred technology is unavailable or incompatible with your environment, select the best supported alternative.
+
+For example, React + Vite + Node.js + Firebase is acceptable if that is the most reliable architecture available to you.
+
+However:
+1. Use TypeScript wherever supported.
+2. Keep frontend and backend responsibilities separated.
+3. Use modular, maintainable architecture.
+4. Keep database operations and sensitive business logic on the server.
+5. Keep secrets outside source code.
+6. Ensure the final application can be exported, synchronized to GitHub and deployed independently of Google AI Studio.
+7. Do not make the application dependent on an AI Studio-only runtime or proprietary hosting feature.
+8. Document all infrastructure dependencies and deployment requirements.
+
+Before implementation, briefly explain the architecture you have selected and why.
+
+Do not stop to ask me to approve a technology stack unless a decision genuinely requires my input.
+
+# 3. APPLICATION DESIGN AND BRAND IDENTITY
+
+Create a premium, modern, professional e-commerce marketplace.
+
+Design direction:
+- Clean and modern.
+- Premium but approachable.
+- Minimalist interface.
+- Excellent product presentation.
+- Strong typography.
+- Consistent spacing.
+- Responsive layouts.
+- Professional dashboards.
+- Clear navigation.
+- Fast shopping experience.
+
+The interface should feel like an established international marketplace rather than an AI-generated template.
+
+Create a cohesive design system with:
+- Brand colors.
+- Typography.
+- Buttons.
+- Form elements.
+- Product cards.
+- Navigation.
+- Modals.
+- Notifications.
+- Tables.
+- Dashboard components.
+- Empty states.
+- Loading states.
+- Error states.
+
+Use Lucide icons where appropriate.
+
+Use realistic product imagery and sample product descriptions. Avoid excessive gradients, unnecessary animations and generic dashboard layouts.
+
+All interfaces must work on desktop, tablet and mobile.
+
+# 4. USER ROLES AND AUTHENTICATION
+
+Implement three primary account roles:
+
+A. CUSTOMER
+- Register.
+- Sign in.
+- Email verification.
+- Password recovery.
+- Profile management.
+- Manage shipping addresses.
+- Manage wishlist.
+- Manage orders.
+- Access purchased digital products.
+- Submit product reviews.
+- Contact sellers.
+- Request returns and refunds.
+
+B. SELLER
+- Register as a seller.
+- Complete seller onboarding.
+- Create a store.
+- Upload store logo and banner.
+- Configure store information.
+- Add and manage products.
+- Manage inventory.
+- Manage orders.
+- View earnings.
+- View commissions.
+- Request withdrawals.
+- Manage customer reviews.
+- View store analytics.
+
+C. ADMINISTRATOR
+- Secure administrator authentication.
+- Manage customers.
+- Manage sellers.
+- Verify seller accounts.
+- Approve or reject products.
+- Manage departments and categories.
+- Manage orders.
+- Manage transactions.
+- Configure marketplace commissions.
+- Manage refunds.
+- Manage withdrawals.
+- Manage coupons.
+- Manage promotions.
+- Manage reports.
+- Manage disputes.
+- View marketplace analytics.
+- Configure marketplace settings.
+
+Implement server-side role-based access control.
+
+Never rely on frontend visibility or hidden navigation links for security.
+
+Every protected API endpoint and server-side operation must validate the authenticated user and their permissions.
+
+# 5. MARKETPLACE STOREFRONT
+
+Create the main DevStore storefront.
+
+Homepage sections:
+- Announcement bar.
+- Header and navigation.
+- Search bar.
+- Department navigation.
+- Promotional hero banner.
+- Featured departments.
+- Flash deals.
+- Trending products.
+- Best-selling products.
+- Recommended products.
+- Recently viewed products.
+- Featured sellers.
+- Digital products spotlight.
+- Newsletter subscription.
+- Footer.
+
+Create these departments:
+
+1. Electronics.
+2. Fashion.
+3. Home and Living.
+4. Beauty and Personal Care.
+5. Books and Education.
+6. Phones and Accessories.
+7. Computers and Technology.
+8. Sports and Outdoors.
+9. Toys and Games.
+10. Digital Products.
+
+Allow administrators to create additional departments and nested categories.
+
+Product catalogue functionality:
+- Product search.
+- Category filtering.
+- Price filtering.
+- Brand filtering.
+- Seller filtering.
+- Rating filtering.
+- Sorting by price.
+- Sorting by popularity.
+- Sorting by newest.
+- Product variations.
+- Product galleries.
+- Discounted pricing.
+- Stock availability.
+- Product badges.
+- Pagination.
+- Related products.
+- Product comparison.
+
+Product pages must include:
+- Product images.
+- Product title.
+- Product description.
+- Price.
+- Discount.
+- Available variations.
+- Stock information.
+- Seller information.
+- Delivery information where applicable.
+- Reviews.
+- Related products.
+- Add-to-cart functionality.
+- Wishlist functionality.
+
+# 6. DEDICATED DIGITAL PRODUCTS MARKETPLACE
+
+Create a dedicated Digital Products department.
+
+This should have its own landing page, navigation, filters and product presentation.
+
+Product categories:
+- Website templates.
+- WordPress themes.
+- WordPress plugins.
+- Next.js templates.
+- React components.
+- UI kits.
+- Figma resources.
+- Graphics.
+- Icons.
+- Illustrations.
+- Software.
+- Source code.
+- Code snippets.
+- E-books.
+- Guides.
+- Educational resources.
+- Digital tools.
+
+Digital product functionality:
+
+1. Digital product uploads.
+2. Product previews.
+3. Image galleries.
+4. Live demo links.
+5. Documentation links.
+6. Product version information.
+7. Product descriptions.
+8. Licensing options.
+9. Personal licenses.
+10. Commercial licenses.
+11. Extended licenses where configured.
+12. Download limits.
+13. Download expiration settings.
+14. Secure file storage.
+15. Controlled download authorization.
+16. Customer download library.
+17. Purchase history.
+18. Version updates for previous buyers.
+
+Digital product files must never be publicly accessible through predictable storage URLs.
+
+Use private storage and authenticated, time-limited download URLs.
+
+Only customers with verified eligible purchases should access downloads.
+
+Never expose original downloadable files through public product pages.
+
+# 7. CUSTOMER SHOPPING EXPERIENCE
+
+Implement:
+
+- Shopping cart.
+- Wishlist.
+- Product comparison.
+- Multiple shipping addresses.
+- Checkout.
+- Order history.
+- Order details.
+- Order tracking.
+- Reviews and ratings.
+- Seller following.
+- Product questions and answers.
+- Refund requests.
+- Return requests.
+- Customer notifications.
+
+Support multiple sellers in one checkout.
+
+When a customer purchases products from different sellers, create one customer-facing order and appropriately separated seller-specific order records.
+
+Maintain accurate product quantities, inventory reservations, shipping information and order statuses.
+
+Prevent duplicate purchases and accidental duplicate order creation.
+
+# 8. SELLER DASHBOARD
+
+Build a dedicated seller dashboard with professional navigation.
+
+Dashboard sections:
+
+Overview:
+- Total revenue.
+- Available earnings.
+- Pending earnings.
+- Total orders.
+- Products listed.
+- Pending orders.
+- Store performance.
+- Revenue charts.
+
+Product management:
+- Add product.
+- Edit product.
+- Delete product.
+- Upload product images.
+- Set product pricing.
+- Configure discounts.
+- Manage variations.
+- Manage stock.
+- Manage digital files.
+- Submit products for approval.
+
+Order management:
+- View orders.
+- View order details.
+- Accept and process orders.
+- Update fulfilment status.
+- Add tracking information.
+- Mark orders as shipped.
+- Handle cancellations.
+- Respond to refund requests.
+
+Financial management:
+- Gross sales.
+- Marketplace commission.
+- Net earnings.
+- Pending settlements.
+- Available balance.
+- Withdrawal history.
+- Withdrawal requests.
+- Transaction history.
+
+Store management:
+- Store profile.
+- Store logo.
+- Store banner.
+- Store description.
+- Contact information.
+- Store policies.
+- Shipping settings.
+
+Analytics:
+- Revenue trends.
+- Order trends.
+- Best-selling products.
+- Product performance.
+- Customer activity.
+
+# 9. PAYMENT ARCHITECTURE
+
+Implement a payment-provider abstraction layer.
+
+The application must support:
+
+- Paystack.
+- Flutterwave.
+
+Do not hardcode payment credentials.
+
+Create environment-variable placeholders for:
+
+PAYSTACK_PUBLIC_KEY
+PAYSTACK_SECRET_KEY
+PAYSTACK_WEBHOOK_SECRET
+
+FLUTTERWAVE_PUBLIC_KEY
+FLUTTERWAVE_SECRET_KEY
+FLUTTERWAVE_WEBHOOK_SECRET
+
+The payment architecture must support:
+- Payment initialization.
+- Checkout sessions.
+- Payment verification.
+- Webhook processing.
+- Transaction records.
+- Failed payments.
+- Successful payments.
+- Abandoned payments.
+- Refund records.
+- Duplicate webhook protection.
+- Payment reconciliation.
+
+All payment verification must happen server-side.
+
+Never trust the success redirect from the frontend as proof of payment.
+
+Verify payments against the payment provider's API and validate webhook authenticity.
+
+Implement idempotent webhook processing.
+
+MULTI-VENDOR FINANCIAL ARCHITECTURE:
+
+A customer must be able to purchase products from multiple vendors in one checkout.
+
+Implement:
+- Parent customer order.
+- Individual seller orders.
+- Transaction references.
+- Marketplace commission.
+- Seller earnings.
+- Pending seller balances.
+- Available seller balances.
+- Refund adjustments.
+- Withdrawal records.
+- Financial transaction ledger.
+
+Every financial movement must have a traceable ledger entry.
+
+Do not allow sellers to withdraw unearned, pending or refunded funds.
+
+Do not implement fake automatic payouts.
+
+For seller payouts, first implement an administrator-approved withdrawal workflow. Integrate actual payout capabilities only after the provider's supported marketplace settlement mechanisms have been verified.
+
+Support provider-specific split-payment or subaccount capabilities where appropriate.
+
+Do not assume Paystack and Flutterwave offer identical marketplace settlement functionality.
+
+CURRENCY SUPPORT:
+
+Design the system to support multiple currencies.
+
+Initial currencies should include:
+- NGN.
+- USD.
+- GBP.
+- EUR.
+
+Store monetary amounts using integer minor units or an equivalent precision-safe representation.
+
+Store the transaction currency with every order and transaction.
+
+Do not silently convert currencies or invent exchange rates.
+
+Prepare currency conversion through a configurable exchange-rate provider.
+
+Display prices according to the selected currency and ensure payment providers receive supported transaction currencies.
+
+IMPORTANT PAYMENT CREDENTIAL INSTRUCTION:
+
+Do not request my Paystack or Flutterwave credentials during the initial development.
+
+First build the complete payment infrastructure, checkout interface, provider adapters and webhook endpoints.
+
+When you reach the stage where actual payment integration is required, STOP and explicitly tell me which credentials and configuration values you need.
+
+Explain where I can obtain them and how to add them securely through your supported secrets manager or the deployment environment.
+
+Begin with test credentials and sandbox transactions.
+
+Never put secret credentials into GitHub or frontend code.
+
+# 10. ADMINISTRATOR DASHBOARD
+
+Build a comprehensive administrator dashboard.
+
+Overview:
+- Total registered users.
+- Total customers.
+- Total sellers.
+- Total products.
+- Total orders.
+- Gross marketplace sales.
+- Marketplace commissions.
+- Pending withdrawals.
+- Pending product approvals.
+- Revenue analytics.
+
+Management modules:
+
+Customers:
+- View customers.
+- Search customers.
+- Suspend accounts.
+- View order history.
+
+Sellers:
+- View sellers.
+- Approve sellers.
+- Reject seller applications.
+- Suspend sellers.
+- View store information.
+- View seller performance.
+
+Products:
+- Review submitted products.
+- Approve products.
+- Reject products.
+- Edit listings where authorized.
+- Remove prohibited listings.
+- Manage reported products.
+
+Orders:
+- View all orders.
+- View seller-specific orders.
+- Track order statuses.
+- Manage cancellations.
+- Manage disputes.
+
+Finance:
+- View transactions.
+- View commissions.
+- Configure commission rates.
+- Review withdrawal requests.
+- Approve or reject withdrawals.
+- Manage refund requests.
+- View financial reports.
+
+Marketing:
+- Manage promotional banners.
+- Manage flash sales.
+- Manage coupons.
+- Manage featured products.
+- Manage featured sellers.
+
+Platform configuration:
+- Marketplace name.
+- Logo.
+- Currency settings.
+- Commission settings.
+- Payment provider configuration.
+- Shipping settings.
+- Email configuration.
+- Category management.
+
+Implement administrator activity logs for sensitive operations.
+
+# 11. INTERACTIVE DEMO MODE — CRITICAL FEATURE
+
+This feature is extremely important.
+
+DevStore must have an interactive demo environment that allows recruiters, hiring managers, clients and visitors to explore the application without creating an account or registering.
+
+Create a prominent "Explore Demo" or "Try Demo" option on the public homepage and login page.
+
+The demo must allow visitors to experience the application as if they were registered users.
+
+DEMO ACCESS:
+
+Provide three separate demo experiences:
+
+1. Customer Demo.
+2. Seller Demo.
+3. Administrator Demo.
+
+Visitors should be able to select their preferred experience without registering.
+
+DEMO CUSTOMER:
+
+Allow visitors to:
+- Browse products.
+- Search products.
+- Filter products.
+- View product details.
+- Add products to cart.
+- Add products to wishlist.
+- Simulate checkout.
+- Simulate successful payments.
+- Simulate failed payments.
+- View order history.
+- View customer profile.
+- Access sample digital purchases.
+- Explore the download library.
+
+DEMO SELLER:
+
+Allow visitors to:
+- View a sample store.
+- Access seller analytics.
+- Add products.
+- Edit products.
+- Delete demo products.
+- Upload sample product images where supported.
+- Manage sample inventory.
+- View orders.
+- Update demo order statuses.
+- View commissions.
+- View earnings.
+- Submit simulated withdrawal requests.
+- View sales analytics.
+
+DEMO ADMINISTRATOR:
+
+Allow visitors to:
+- View administrator analytics.
+- Manage demo customers.
+- Manage demo sellers.
+- Review demo seller applications.
+- Approve and reject demo products.
+- Manage demo orders.
+- Change demo commission settings.
+- Review simulated withdrawals.
+- Manage demo categories.
+- Explore marketplace configuration.
+- View demo transactions.
+
+DEMO DATA ISOLATION — NON-NEGOTIABLE:
+
+The demo environment must be completely isolated from the live production marketplace.
+
+Do not simply create a demo account with unrestricted access to the actual database.
+
+Implement a dedicated demo data environment using a separate database, separate demo tenant or rigorously isolated demo data namespace with enforced server-side access controls.
+
+Every demo operation must be restricted to demo data.
+
+A demo user must never be able to:
+- Access real customer records.
+- View real seller financial information.
+- Modify real products.
+- Change real inventory.
+- Access real orders.
+- Access real transactions.
+- Trigger real refunds.
+- Initiate real withdrawals.
+- Change real administrator settings.
+- Access private production files.
+
+DEMO PAYMENT SYSTEM:
+
+All demo payments must be simulated.
+
+Never initialize actual Paystack or Flutterwave payments from demo sessions.
+
+Allow visitors to simulate:
+- Successful payment.
+- Failed payment.
+- Cancelled payment.
+- Pending payment.
+
+Show realistic transaction results and order updates.
+
+DEMO DIGITAL DOWNLOADS:
+
+Use dedicated demo files or sample assets.
+
+Never expose real vendor uploads or production download URLs.
+
+DEMO SECURITY:
+
+- Demo sessions must be distinguishable from production sessions.
+- Enforce demo restrictions on the server.
+- Validate roles and demo context on every protected operation.
+- Do not trust a frontend demo-mode flag.
+- Prevent access to production APIs through demo sessions.
+- Prevent privilege escalation.
+- Rate-limit public demo access.
+- Use seeded demo accounts and records.
+- Provide a way to reset demo data.
+- Log demo activity separately.
+- Prevent demo actions from triggering real emails, payment requests, payouts or other external side effects.
+
+DEMO EXPERIENCE:
+
+Clearly display a persistent "DEMO MODE" indicator throughout the demo.
+
+Explain that actions and transactions are simulated.
+
+The demo should be sufficiently populated to demonstrate a realistic marketplace.
+
+Allow recruiters to switch between customer, seller and administrator demo experiences without having to register.
+
+The demo must be usable by someone who has never seen DevStore before.
+
+Do not make the demo a static screenshot or a collection of non-functional pages.
+
+# 12. ADDITIONAL MARKETPLACE FEATURES
+
+Implement the following where appropriate:
+
+- Flash sales.
+- Daily deals.
+- Coupon codes.
+- Discount campaigns.
+- Featured sellers.
+- Verified seller badges.
+- Follow sellers.
+- Product reviews.
+- Seller reviews.
+- Product questions and answers.
+- Customer support.
+- Dispute resolution.
+- Notification centre.
+- Email notifications.
+- Recently viewed products.
+- Related products.
+- Product recommendations.
+- Search suggestions.
+- Responsive navigation.
+- SEO-friendly product pages.
+- Structured metadata.
+- Sitemap.
+- Robots.txt.
+
+# 13. DATABASE DESIGN
+
+Design a proper relational data model if PostgreSQL is available.
+
+Expected entities include:
+
+- Users.
+- User roles.
+- Customer profiles.
+- Seller profiles.
+- Stores.
+- Seller applications.
+- Addresses.
+- Departments.
+- Categories.
+- Products.
+- Product images.
+- Product variations.
+- Product inventory.
+- Digital product files.
+- Product licences.
+- Carts.
+- Cart items.
+- Wishlists.
+- Orders.
+- Seller orders.
+- Order items.
+- Payments.
+- Transactions.
+- Financial ledger entries.
+- Commissions.
+- Seller balances.
+- Withdrawals.
+- Refunds.
+- Shipments.
+- Reviews.
+- Coupons.
+- Promotions.
+- Notifications.
+- Support tickets.
+- Disputes.
+- Audit logs.
+- Demo sessions.
+- Demo activity.
+
+Implement appropriate indexes, foreign keys, uniqueness constraints and database transactions.
+
+Avoid duplicating financial information without reconciliation mechanisms.
+
+Use proper database migrations.
+
+If using Firestore or another database, design an equivalent normalized logical model with appropriate security rules, consistency safeguards and transaction strategies.
+
+# 14. SECURITY REQUIREMENTS
+
+Security must be considered throughout development.
+
+Implement:
+- Secure authentication.
+- Password hashing where applicable.
+- Role-based authorization.
+- Server-side input validation.
+- Protected API routes.
+- Rate limiting.
+- Secure file uploads.
+- File type and size validation.
+- Private digital file storage.
+- Secure download authorization.
+- CSRF protection where applicable.
+- XSS prevention.
+- SQL injection prevention.
+- Secure cookies.
+- Environment variable management.
+- Payment webhook signature verification.
+- Idempotent financial operations.
+- Administrator audit logs.
+- Session expiration and revocation.
+
+Do not expose API secrets.
+
+Do not use hardcoded administrator passwords.
+
+Do not use frontend-only authorization.
+
+Do not claim security features are complete unless they have actually been implemented and tested.
+
+# 15. NOTIFICATIONS AND EMAIL
+
+Prepare transactional email integration.
+
+Email events:
+- Account registration.
+- Email verification.
+- Password recovery.
+- Seller application submission.
+- Seller approval.
+- Product approval.
+- New order.
+- Payment confirmation.
+- Order shipment.
+- Order delivery.
+- Refund updates.
+- Withdrawal updates.
+
+Use a configurable email provider.
+
+If email credentials are unavailable, implement the integration architecture and clearly indicate which configuration values are required.
+
+Do not simulate successful email delivery in production.
+
+# 16. DEVELOPMENT QUALITY AND TESTING
+
+Build the application using clean, modular and maintainable code.
+
+Requirements:
+- Reusable components.
+- Consistent naming.
+- Type safety.
+- Proper error handling.
+- Loading states.
+- Empty states.
+- Form validation.
+- Responsive layouts.
+- Database migrations.
+- API documentation.
+- Environment configuration.
+- Meaningful comments.
+- No unnecessary duplicated code.
+
+Create automated tests for important business logic.
+
+Test:
+- Registration and authentication.
+- Role authorization.
+- Product creation.
+- Inventory updates.
+- Shopping cart.
+- Checkout.
+- Multi-vendor order splitting.
+- Payment verification.
+- Duplicate webhook handling.
+- Commission calculations.
+- Seller balances.
+- Withdrawal restrictions.
+- Digital download permissions.
+- Demo isolation.
+- Demo payment simulation.
+
+Do not mark a feature as complete simply because its interface exists.
+
+A feature is complete only when its underlying functionality works.
+
+Do not use fake API responses to represent production functionality.
+
+Where an external integration is not yet configured, display an appropriate setup requirement.
+
+# 17. DEPLOYMENT AND GITHUB REQUIREMENTS
+
+The final application must be independently deployable.
+
+Prepare the codebase for GitHub synchronization and Vercel deployment.
+
+Include:
+- Complete project source code.
+- package.json.
+- Appropriate build scripts.
+- Database schema.
+- Database migrations.
+- Environment variable example file.
+- README.md.
+- Deployment documentation.
+- API documentation.
+- Seed data.
+- Test instructions.
+
+Create a comprehensive README explaining:
+
+1. What DevStore is.
+2. Technology stack.
+3. Project architecture.
+4. Installation.
+5. Environment variables.
+6. Database setup.
+7. Authentication setup.
+8. Payment integration.
+9. Storage configuration.
+10. Email configuration.
+11. Demo mode.
+12. Running locally.
+13. Running tests.
+14. Deploying to Vercel.
+
+Create a .env.example file containing placeholders only.
+
+Never commit actual credentials.
+
+Ensure that the application does not depend on Google AI Studio being active to run.
+
+If you use Firebase or other Google Cloud services, document their external configuration and deployment requirements.
+
+Before declaring Vercel compatibility, verify that the chosen backend, server routes, database access, file uploads, webhooks and background processes can actually operate in the Vercel environment.
+
+Do not assume every Google AI Studio runtime feature transfers automatically to Vercel.
+
+If a feature requires an external service, explain the dependency.
+
+Once the project is ready, guide me through connecting it to GitHub and synchronizing the complete codebase.
+
+# 18. IMPLEMENTATION STRATEGY
+
+This is a large application. Do not attempt to generate every feature in one uncontrolled operation.
+
+Build it systematically in phases while maintaining the complete architecture.
+
+PHASE 1 — Foundation:
+- Project structure.
+- Design system.
+- Database architecture.
+- Authentication.
+- Role management.
+- Public storefront.
+- Main navigation.
+- Product catalogue.
+
+PHASE 2 — Shopping:
+- Product details.
+- Cart.
+- Wishlist.
+- Customer accounts.
+- Checkout interface.
+- Order architecture.
+
+PHASE 3 — Seller:
+- Seller onboarding.
+- Store creation.
+- Seller dashboard.
+- Product management.
+- Inventory.
+- Order management.
+- Analytics.
+
+PHASE 4 — Digital marketplace:
+- Digital product catalogue.
+- File uploads.
+- Licensing.
+- Secure downloads.
+- Customer download library.
+
+PHASE 5 — Finance:
+- Payment provider adapters.
+- Paystack.
+- Flutterwave.
+- Payment verification.
+- Webhooks.
+- Multi-vendor order splitting.
+- Commissions.
+- Seller balances.
+- Withdrawals.
+- Refunds.
+
+PHASE 6 — Administration:
+- Administrator dashboard.
+- Customer management.
+- Seller verification.
+- Product moderation.
+- Order management.
+- Financial management.
+- Marketplace configuration.
+
+PHASE 7 — Interactive demo:
+- Customer demo.
+- Seller demo.
+- Administrator demo.
+- Demo data isolation.
+- Simulated payments.
+- Demo reset functionality.
+- Demo security testing.
+
+PHASE 8 — Finalization:
+- Automated testing.
+- Security review.
+- Performance optimization.
+- SEO.
+- Responsive testing.
+- Error handling.
+- Documentation.
+- GitHub synchronization.
+- Vercel deployment preparation.
+
+You must maintain an implementation checklist and update it as features are completed.
+
+Do not unnecessarily rebuild completed features when moving to the next phase.
+
+# 19. IMPORTANT WORKING INSTRUCTIONS
+
+1. Start by analyzing the complete requirements.
+2. Select the most suitable supported technology stack.
+3. Explain any technology substitutions.
+4. Establish the architecture before generating the application.
+5. Build real, connected functionality.
+6. Use persistent storage for production data.
+7. Keep demo and production environments isolated.
+8. Never expose secrets.
+9. Never invent successful external integrations.
+10. Never remove existing working functionality when implementing new features.
+11. Maintain consistent design across the entire application.
+12. Test important workflows as you implement them.
+13. Report incomplete features honestly.
+14. Maintain a list of external services and credentials still required.
+15. Do not stop after generating the homepage or dashboard.
+16. Continue through the implementation phases until the application is complete or a genuine external dependency prevents progress.
+
+If you encounter an environment limitation, select a reliable alternative and explain the consequences rather than silently abandoning the feature.
+
+When you reach an integration that requires my credentials, ask for them at that stage, explain the exact values required and wait for me to configure them securely.
+
+# 20. FIRST ACTION
+
+Begin with:
+
+A. Analyze the entire DevStore specification.
+
+B. Select and explain the technology stack that is actually supported by your environment and compatible with independent deployment to Vercel.
+
+C. Design the application architecture.
+
+D. Define the database schema and major relationships.
+
+E. Establish the customer, seller, administrator and isolated demo architecture.
+
+F. Create a phased implementation checklist.
+
+Do not merely give me a plan or a description of what you intend to build.
+
+Start building the actual DevStore application.
+
+The final goal is a fully functional, international-ready multi-vendor marketplace with physical products, digital products, real customer and seller workflows, administrator controls, payment integrations and an interactive recruiter demo environment.

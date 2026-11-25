@@ -1,0 +1,478 @@
+{
+  "entities": {
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Server-verified marketplace administrator record",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "grantedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "grantedAt"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Public-safe user profile without PII",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "role": { "type": "string", "enum": ["customer", "seller", "admin"] },
+        "accountStatus": { "type": "string", "enum": ["active", "suspended"] },
+        "avatarUrl": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "role", "accountStatus", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII record for user email, phone, and currency preference",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "defaultCurrency": { "type": "string", "enum": ["USD", "NGN", "GBP", "EUR"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "email", "defaultCurrency", "updatedAt"]
+    },
+    "ShippingAddress": {
+      "title": "ShippingAddress",
+      "description": "Customer international shipping address",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "fullName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "phone": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "line1": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "line2": { "type": "string", "maxLength": 160 },
+        "city": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "state": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "postalCode": { "type": "string", "maxLength": 24 },
+        "countryCode": { "type": "string", "minLength": 2, "maxLength": 4 },
+        "isDefault": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "label", "fullName", "phone", "line1", "city", "countryCode", "isDefault", "createdAt", "updatedAt"]
+    },
+    "WishlistItem": {
+      "title": "WishlistItem",
+      "description": "Saved product in customer wishlist",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "productId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "addedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "productId", "addedAt"]
+    },
+    "UserNotification": {
+      "title": "UserNotification",
+      "description": "User notification entry",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 400 },
+        "category": { "type": "string", "enum": ["order", "payout", "moderation", "system"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "title", "message", "category", "read", "createdAt"]
+    },
+    "FollowedSeller": {
+      "title": "FollowedSeller",
+      "description": "Customer following relationship with a store",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "followedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "storeId", "followedAt"]
+    },
+    "Store": {
+      "title": "Store",
+      "description": "Vendor storefront profile",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "slug": { "type": "string", "minLength": 2, "maxLength": 100, "pattern": "^[a-z0-9\\-]+$" },
+        "description": { "type": "string", "maxLength": 1000 },
+        "logoUrl": { "type": "string", "maxLength": 500 },
+        "bannerUrl": { "type": "string", "maxLength": 500 },
+        "countryCode": { "type": "string", "minLength": 2, "maxLength": 4 },
+        "policies": { "type": "string", "maxLength": 1200 },
+        "shippingSummary": { "type": "string", "maxLength": 300 },
+        "verified": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["pending", "active", "suspended"] },
+        "ratingAvg": { "type": "number" },
+        "followerCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name", "slug", "description", "countryCode", "verified", "status", "ratingAvg", "followerCount", "createdAt", "updatedAt"]
+    },
+    "SellerApplication": {
+      "title": "SellerApplication",
+      "description": "Onboarding application submitted by a prospective seller",
+      "type": "object",
+      "properties": {
+        "applicantId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "countryCode": { "type": "string", "minLength": 2, "maxLength": 4 },
+        "categoryFocus": { "type": "string", "maxLength": 100 },
+        "description": { "type": "string", "minLength": 10, "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "reviewNote": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["applicantId", "businessName", "countryCode", "categoryFocus", "description", "status", "createdAt", "updatedAt"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "Marketplace department or nested category",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "slug": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^[a-z0-9\\-]+$" },
+        "description": { "type": "string", "maxLength": 300 },
+        "parentId": { "type": "string", "maxLength": 128 },
+        "isDigital": { "type": "boolean" },
+        "sortOrder": { "type": "integer" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "slug", "isDigital", "sortOrder", "active", "createdAt", "updatedAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Physical or digital marketplace listing",
+      "type": "object",
+      "properties": {
+        "sellerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "departmentSlug": { "type": "string", "maxLength": 80 },
+        "categorySlug": { "type": "string", "maxLength": 80 },
+        "productType": { "type": "string", "enum": ["physical", "digital"] },
+        "title": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "slug": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "description": { "type": "string", "minLength": 10, "maxLength": 4000 },
+        "brand": { "type": "string", "maxLength": 80 },
+        "currency": { "type": "string", "enum": ["USD", "NGN", "GBP", "EUR"] },
+        "priceMinor": { "type": "integer" },
+        "compareAtPriceMinor": { "type": "integer" },
+        "stockQty": { "type": "integer" },
+        "imageUrls": { "type": "array" },
+        "variations": { "type": "array" },
+        "badges": { "type": "array" },
+        "isFlashDeal": { "type": "boolean" },
+        "isFeatured": { "type": "boolean" },
+        "approvalStatus": { "type": "string", "enum": ["draft", "pending", "approved", "rejected"] },
+        "ratingAvg": { "type": "number" },
+        "reviewCount": { "type": "integer" },
+        "salesCount": { "type": "integer" },
+        "version": { "type": "string", "maxLength": 32 },
+        "liveDemoUrl": { "type": "string", "maxLength": 300 },
+        "docsUrl": { "type": "string", "maxLength": 300 },
+        "downloadLimit": { "type": "integer" },
+        "downloadExpiryDays": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sellerId", "storeId", "departmentSlug", "categorySlug", "productType", "title", "slug", "description", "currency", "priceMinor", "stockQty", "imageUrls", "approvalStatus", "ratingAvg", "reviewCount", "salesCount", "createdAt", "updatedAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Parent multi-vendor customer order",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "currency": { "type": "string", "enum": ["USD", "NGN", "GBP", "EUR"] },
+        "subtotalMinor": { "type": "integer" },
+        "discountMinor": { "type": "integer" },
+        "shippingMinor": { "type": "integer" },
+        "totalMinor": { "type": "integer" },
+        "couponCode": { "type": "string", "maxLength": 40 },
+        "paymentProvider": { "type": "string", "enum": ["paystack", "flutterwave"] },
+        "paymentReference": { "type": "string", "maxLength": 120 },
+        "paymentStatus": { "type": "string", "enum": ["pending", "paid", "failed", "refunded"] },
+        "status": { "type": "string", "enum": ["pending", "processing", "shipped", "delivered", "cancelled", "refunded"] },
+        "shippingCity": { "type": "string", "maxLength": 120 },
+        "shippingCountry": { "type": "string", "maxLength": 8 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId", "currency", "subtotalMinor", "discountMinor", "shippingMinor", "totalMinor", "paymentProvider", "paymentReference", "paymentStatus", "status", "createdAt", "updatedAt"]
+    },
+    "SellerOrder": {
+      "title": "SellerOrder",
+      "description": "Seller-specific split order derived from a parent customer order",
+      "type": "object",
+      "properties": {
+        "parentOrderId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sellerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "currency": { "type": "string", "enum": ["USD", "NGN", "GBP", "EUR"] },
+        "grossMinor": { "type": "integer" },
+        "commissionRateBps": { "type": "integer" },
+        "commissionMinor": { "type": "integer" },
+        "netEarningsMinor": { "type": "integer" },
+        "fulfilmentStatus": { "type": "string", "enum": ["pending", "accepted", "shipped", "delivered", "cancelled", "refund_requested", "refunded"] },
+        "trackingNumber": { "type": "string", "maxLength": 100 },
+        "carrier": { "type": "string", "maxLength": 80 },
+        "itemsCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["parentOrderId", "customerId", "sellerId", "storeId", "currency", "grossMinor", "commissionRateBps", "commissionMinor", "netEarningsMinor", "fulfilmentStatus", "itemsCount", "createdAt", "updatedAt"]
+    },
+    "DigitalEntitlement": {
+      "title": "DigitalEntitlement",
+      "description": "Verified digital license and download authorization record",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orderId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "productId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sellerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "licenseType": { "type": "string", "enum": ["personal", "commercial", "extended"] },
+        "version": { "type": "string", "maxLength": 32 },
+        "downloadsUsed": { "type": "integer" },
+        "maxDownloads": { "type": "integer" },
+        "assetKey": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId", "orderId", "productId", "sellerId", "licenseType", "version", "downloadsUsed", "maxDownloads", "assetKey", "createdAt"]
+    },
+    "LedgerTransaction": {
+      "title": "LedgerTransaction",
+      "description": "Immutable financial ledger record",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "maxLength": 128 },
+        "sellerId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["charge", "commission", "seller_credit", "refund", "withdrawal"] },
+        "provider": { "type": "string", "maxLength": 40 },
+        "reference": { "type": "string", "maxLength": 120 },
+        "currency": { "type": "string", "enum": ["USD", "NGN", "GBP", "EUR"] },
+        "amountMinor": { "type": "integer" },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed", "reversed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "reference", "currency", "amountMinor", "status", "createdAt"]
+    },
+    "WithdrawalRequest": {
+      "title": "WithdrawalRequest",
+      "description": "Seller payout request subject to administrator review",
+      "type": "object",
+      "properties": {
+        "sellerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "currency": { "type": "string", "enum": ["USD", "NGN", "GBP", "EUR"] },
+        "amountMinor": { "type": "integer" },
+        "bankName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "accountNumberLast4": { "type": "string", "minLength": 4, "maxLength": 4 },
+        "accountName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "paid"] },
+        "adminNote": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sellerId", "storeId", "currency", "amountMinor", "bankName", "accountNumberLast4", "accountName", "status", "createdAt", "updatedAt"]
+    },
+    "ProductReview": {
+      "title": "ProductReview",
+      "description": "Customer review for a marketplace product",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "rating": { "type": "integer" },
+        "title": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "comment": { "type": "string", "minLength": 4, "maxLength": 1200 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["productId", "storeId", "authorId", "authorName", "rating", "title", "comment", "createdAt", "updatedAt"]
+    },
+    "ProductQuestion": {
+      "title": "ProductQuestion",
+      "description": "Pre-purchase customer question and seller answer",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "storeId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "question": { "type": "string", "minLength": 4, "maxLength": 500 },
+        "answer": { "type": "string", "maxLength": 800 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["productId", "storeId", "authorId", "authorName", "question", "createdAt", "updatedAt"]
+    },
+    "Coupon": {
+      "title": "Coupon",
+      "description": "Marketplace promotional discount coupon",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 3, "maxLength": 32, "pattern": "^[A-Z0-9_\\-]+$" },
+        "discountPercent": { "type": "integer" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "discountPercent", "active", "createdAt"]
+    },
+    "Dispute": {
+      "title": "Dispute",
+      "description": "Customer return or refund dispute",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sellerOrderId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "customerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sellerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reason": { "type": "string", "minLength": 4, "maxLength": 140 },
+        "details": { "type": "string", "minLength": 10, "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["open", "under_review", "resolved_refund", "resolved_closed"] },
+        "resolutionNote": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderId", "sellerOrderId", "customerId", "sellerId", "reason", "details", "status", "createdAt", "updatedAt"]
+    },
+    "PlatformConfig": {
+      "title": "PlatformConfig",
+      "description": "Global marketplace settings managed by administrators",
+      "type": "object",
+      "properties": {
+        "marketplaceName": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "defaultCurrency": { "type": "string", "enum": ["USD", "NGN", "GBP", "EUR"] },
+        "supportedCurrencies": { "type": "array", "maxItems": 8, "items": { "type": "string", "enum": ["USD", "NGN", "GBP", "EUR"] } },
+        "exchangeRates": { "type": "object" },
+        "exchangeRateMode": { "type": "string", "enum": ["manual", "external_api"] },
+        "commissionRateBps": { "type": "integer" },
+        "paystackEnabled": { "type": "boolean" },
+        "flutterwaveEnabled": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["marketplaceName", "defaultCurrency", "commissionRateBps", "paystackEnabled", "flutterwaveEnabled", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Administrator sensitive action log",
+      "type": "object",
+      "properties": {
+        "actorId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "action": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "targetType": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "summary": { "type": "string", "minLength": 2, "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorId", "action", "targetType", "targetId", "summary", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Verified platform administrator accounts"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Public-safe user profile documents"
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Private user PII isolated to owner and admin"
+    },
+    "/users/{userId}/addresses/{addressId}": {
+      "schema": { "$ref": "#/entities/ShippingAddress" },
+      "description": "Customer international shipping addresses"
+    },
+    "/users/{userId}/wishlist/{productId}": {
+      "schema": { "$ref": "#/entities/WishlistItem" },
+      "description": "Customer saved wishlist products"
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/UserNotification" },
+      "description": "User notification inbox"
+    },
+    "/users/{userId}/followedSellers/{storeId}": {
+      "schema": { "$ref": "#/entities/FollowedSeller" },
+      "description": "Stores followed by the user"
+    },
+    "/stores/{storeId}": {
+      "schema": { "$ref": "#/entities/Store" },
+      "description": "Vendor storefront profiles"
+    },
+    "/sellerApplications/{applicationId}": {
+      "schema": { "$ref": "#/entities/SellerApplication" },
+      "description": "Seller onboarding applications"
+    },
+    "/departments/{departmentId}": {
+      "schema": { "$ref": "#/entities/Department" },
+      "description": "Marketplace departments and categories"
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Approved and pending physical & digital products"
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Parent multi-vendor customer orders"
+    },
+    "/sellerOrders/{sellerOrderId}": {
+      "schema": { "$ref": "#/entities/SellerOrder" },
+      "description": "Vendor-specific split orders"
+    },
+    "/digitalEntitlements/{entitlementId}": {
+      "schema": { "$ref": "#/entities/DigitalEntitlement" },
+      "description": "Verified digital license entitlements"
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/LedgerTransaction" },
+      "description": "Immutable financial ledger transactions"
+    },
+    "/withdrawals/{withdrawalId}": {
+      "schema": { "$ref": "#/entities/WithdrawalRequest" },
+      "description": "Seller withdrawal requests"
+    },
+    "/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/ProductReview" },
+      "description": "Verified customer product reviews"
+    },
+    "/productQuestions/{questionId}": {
+      "schema": { "$ref": "#/entities/ProductQuestion" },
+      "description": "Product pre-purchase Q&A"
+    },
+    "/coupons/{couponId}": {
+      "schema": { "$ref": "#/entities/Coupon" },
+      "description": "Promotional coupon codes"
+    },
+    "/disputes/{disputeId}": {
+      "schema": { "$ref": "#/entities/Dispute" },
+      "description": "Order disputes and refund requests"
+    },
+    "/platformConfig/{configId}": {
+      "schema": { "$ref": "#/entities/PlatformConfig" },
+      "description": "Marketplace-wide settings"
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Administrator activity audit trail"
+    }
+  }
+}
