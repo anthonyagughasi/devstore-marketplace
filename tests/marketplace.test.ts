@@ -1751,7 +1751,26 @@ describe('DevStore Firebase Auth Token Verification, Client Refresh & Checkout R
       delete process.env.FLUTTERWAVE_SECRET_KEY;
     }
   });
+
+  it('keeps firebase-admin, jwks-rsa, and jose CommonJS-compatible to prevent ERR_REQUIRE_ESM on Vercel', async () => {
+    const { createRequire } = await import('module');
+    const req = createRequire(import.meta.url);
+
+    const josePkg = req('jose/package.json') as { version: string; main?: string; type?: string };
+    expect(Number(josePkg.version.split('.')[0])).toBeLessThan(6);
+    expect(josePkg.type).not.toBe('module');
+
+    const jwksPkg = req('jwks-rsa/package.json') as { version: string };
+    expect(Number(jwksPkg.version.split('.')[0])).toBe(3);
+
+    const jwksMod = req('jwks-rsa') as { JwksClient?: unknown };
+    expect(typeof jwksMod.JwksClient).toBe('function');
+
+    const adminAuthInstance = await getAdminAuth();
+    expect(typeof adminAuthInstance.verifyIdToken).toBe('function');
+  });
 });
+
 
 
 
