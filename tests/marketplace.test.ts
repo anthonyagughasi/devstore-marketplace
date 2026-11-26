@@ -1353,4 +1353,405 @@ describe('DevStore Payment Initialization Hardening & Serverless Continuity', ()
   });
 });
 
+describe('DevStore Firebase Auth Token Verification, Client Refresh & Checkout Regression Guard', () => {
+  function makeMockJwt(payload: Record<string, unknown>, header: Record<string, unknown> = { alg: 'RS256', kid: 'kid-test-1' }): string {
+    const h = Buffer.from(JSON.stringify(header), 'utf8').toString('base64url');
+    const p = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+    const s = Buffer.from('mock-signature-bytes', 'utf8').toString('base64url');
+    return `${h}.${p}.${s}`;
+  }
+
+  it('aligns backend Firebase projectId with firebase-applet-config.json even if FIREBASE_PROJECT_ID mismatches', async () => {
+    const { getFirebaseProjectId } = await import('../src/server/security.js');
+    const prev = process.env.FIREBASE_PROJECT_ID;
+    process.env.FIREBASE_PROJECT_ID = 'stale-wrong-project-id';
+    try {
+      expect(getFirebaseProjectId()).toBe('spatial-campaign-nlvvl');
+    } finally {
+      if (prev !== undefined) process.env.FIREBASE_PROJECT_ID = prev;
+      else delete process.env.FIREBASE_PROJECT_ID;
+    }
+  });
+
+  it('distinguishes missing, malformed, expired, project-mismatched, and cert-fetch auth failures without leaking tokens', async () => {
+    const adminAuthInstance = await getAdminAuth();
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      // 1. Missing Authorization header -> 401 AUTH_MISSING
+      const missingRes = await fetch(`${baseUrl}/api/payments/paystack/initialize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amountMinor: 5000, currency: 'NGN' }),
+      });
+      expect(missingRes.status).toBe(401);
+      expect(((await missingRes.json()) as { code: string }).code).toBe('AUTH_MISSING');
+
+      // 2. Non-Bearer / malformed / quoted placeholder tokens -> 401 AUTH_MALFORMED
+      for (const badAuth of ['Basic abc123', 'Bearer   ', 'Bearer null', 'Bearer undefined', 'Bearer "abc.def.ghi"']) {
+        const badHdrRes = await fetch(`${baseUrl}/api/payments/flutterwave/initialize`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: badAuth,
+          },
+          body: JSON.stringify({ amountMinor: 5000, currency: 'USD' }),
+        });
+        expect(badHdrRes.status).toBe(401);
+        expect(((await badHdrRes.json()) as { code: string }).code).toBe('AUTH_MALFORMED');
+      }
+
+      // 3. Expired token -> 401 TOKEN_EXPIRED
+      const expiredToken = makeMockJwt({
+        aud: 'spatial-campaign-nlvvl',
+        iss: 'https://securetoken.google.com/spatial-campaign-nlvvl',
+        exp: Math.floor(Date.now() / 1000) - 120,
+        firebase: { sign_in_provider: 'password' },
+      });
+      const expiredSpy = vi.spyOn(adminAuthInstance, 'verifyIdToken').mockRejectedValueOnce(
+        Object.assign(new Error('Firebase ID token has expired.'), { code: 'auth/id-token-expired' })
+      );
+      const expiredRes = await fetch(`${baseUrl}/api/payments/paystack/initialize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${expiredToken}`,
+        },
+        body: JSON.stringify({ amountMinor: 5000, currency: 'NGN' }),
+      });
+      expiredSpy.mockRestore();
+      expect(expiredRes.status).toBe(401);
+      expect(((await expiredRes.json()) as { code: string }).code).toBe('TOKEN_EXPIRED');
+
+      // 4. Token belonging to wrong Firebase project -> 401 AUTH_PROJECT_MISMATCH
+      const wrongProjToken = makeMockJwt({
+        aud: 'different-firebase-project',
+        iss: 'https://securetoken.google.com/different-firebase-project',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        firebase: { sign_in_provider: 'google.com' },
+      });
+      const wrongProjSpy = vi.spyOn(adminAuthInstance, 'verifyIdToken').mockRejectedValueOnce(
+        Object.assign(
+          new Error('Firebase ID token has incorrect "aud" (audience) claim.'),
+          { code: 'auth/argument-error' }
+        )
+      );
+      const wrongProjRes = await fetch(`${baseUrl}/api/payments/flutterwave/initialize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${wrongProjToken}`,
+        },
+        body: JSON.stringify({ amountMinor: 5000, currency: 'USD' }),
+      });
+      wrongProjSpy.mockRestore();
+      expect(wrongProjRes.status).toBe(401);
+      expect(((await wrongProjRes.json()) as { code: string }).code).toBe('AUTH_PROJECT_MISMATCH');
+
+      // 5. Genuinely invalid/forged token -> 401 INVALID_TOKEN
+      const invalidToken = makeMockJwt({
+        aud: 'spatial-campaign-nlvvl',
+        iss: 'https://securetoken.google.com/spatial-campaign-nlvvl',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      });
+      const invalidSpy = vi.spyOn(adminAuthInstance, 'verifyIdToken').mockRejectedValueOnce(
+        Object.assign(new Error('Firebase ID token has invalid signature.'), { code: 'auth/argument-error' })
+      );
+      const invalidRes = await fetch(`${baseUrl}/api/payments/paystack/initialize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${invalidToken}`,
+        },
+        body: JSON.stringify({ amountMinor: 5000, currency: 'NGN' }),
+      });
+      invalidSpy.mockRestore();
+      expect(invalidRes.status).toBe(401);
+      expect(((await invalidRes.json()) as { code: string }).code).toBe('INVALID_TOKEN');
+
+      // 6. Cert fetch / Admin infrastructure failure -> 503 AUTH_SERVICE_ERROR
+      const svcSpy = vi.spyOn(adminAuthInstance, 'verifyIdToken').mockRejectedValueOnce(
+        new Error('Error fetching public keys for Google certs: network timeout')
+      );
+      const svcRes = await fetch(`${baseUrl}/api/payments/paystack/initialize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${invalidToken}`,
+        },
+        body: JSON.stringify({ amountMinor: 5000, currency: 'NGN' }),
+      });
+      svcSpy.mockRestore();
+      expect(svcRes.status).toBe(503);
+      expect(((await svcRes.json()) as { code: string }).code).toBe('AUTH_SERVICE_ERROR');
+
+      // Verify raw tokens were NEVER logged in diagnostics
+      const allLogs = [
+        ...consoleWarnSpy.mock.calls.flat(),
+        ...consoleErrorSpy.mock.calls.flat(),
+      ].map((v) => (typeof v === 'string' ? v : JSON.stringify(v)));
+      for (const logged of allLogs) {
+        expect(logged).not.toContain(expiredToken);
+        expect(logged).not.toContain(wrongProjToken);
+        expect(logged).not.toContain(invalidToken);
+      }
+    } finally {
+      consoleWarnSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it('supports Email/Password & Google users, page refresh authStateReady, and single retry on TOKEN_EXPIRED without duplicate transactions', async () => {
+    paymentTransactionStore.resetForTests();
+    process.env.PAYSTACK_SECRET_KEY = 'sk_test_auth_retry';
+    process.env.FLUTTERWAVE_SECRET_KEY = 'FLWSECK_TEST_auth_retry';
+
+    const { fetchWithFirebaseAuth, ApiRequestError } = await import('../src/lib/authenticatedFetch.js');
+    const adminAuthInstance = await getAdminAuth();
+    const realFetch = globalThis.fetch;
+
+    const expiredJwt = makeMockJwt({
+      aud: 'spatial-campaign-nlvvl',
+      iss: 'https://securetoken.google.com/spatial-campaign-nlvvl',
+      exp: Math.floor(Date.now() / 1000) - 60,
+      firebase: { sign_in_provider: 'password' },
+    });
+    const freshPasswordJwt = makeMockJwt({
+      aud: 'spatial-campaign-nlvvl',
+      iss: 'https://securetoken.google.com/spatial-campaign-nlvvl',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      firebase: { sign_in_provider: 'password' },
+    });
+    const freshGoogleJwt = makeMockJwt({
+      aud: 'spatial-campaign-nlvvl',
+      iss: 'https://securetoken.google.com/spatial-campaign-nlvvl',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      firebase: { sign_in_provider: 'google.com' },
+    });
+
+    const verifySpy = vi.spyOn(adminAuthInstance, 'verifyIdToken').mockImplementation(async (tok: string) => {
+      if (tok === expiredJwt) {
+        throw Object.assign(new Error('Firebase ID token has expired.'), { code: 'auth/id-token-expired' });
+      }
+      if (tok === freshPasswordJwt) {
+        return {
+          uid: 'pwd-user-1',
+          email: 'customer@example.com',
+          aud: 'spatial-campaign-nlvvl',
+          auth_time: 0,
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          firebase: { identities: {}, sign_in_provider: 'password' },
+          iat: Math.floor(Date.now() / 1000),
+          iss: 'https://securetoken.google.com/spatial-campaign-nlvvl',
+          sub: 'pwd-user-1',
+        } as never;
+      }
+      if (tok === freshGoogleJwt) {
+        return {
+          uid: 'google-user-1',
+          email: 'googlebuyer@example.com',
+          aud: 'spatial-campaign-nlvvl',
+          auth_time: 0,
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          firebase: { identities: {}, sign_in_provider: 'google.com' },
+          iat: Math.floor(Date.now() / 1000),
+          iss: 'https://securetoken.google.com/spatial-campaign-nlvvl',
+          sub: 'google-user-1',
+        } as never;
+      }
+      throw Object.assign(new Error('Invalid token'), { code: 'auth/argument-error' });
+    });
+
+    let paystackGatewayInitCount = 0;
+    let flutterwaveGatewayInitCount = 0;
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = typeof input === 'string' ? input : input.toString();
+        if (urlStr.startsWith('https://api.paystack.co/transaction/initialize')) {
+          paystackGatewayInitCount += 1;
+          const body = JSON.parse(String(init?.body || '{}')) as { reference: string };
+          return new Response(
+            JSON.stringify({
+              status: true,
+              data: {
+                authorization_url: `https://checkout.paystack.com/${body.reference}`,
+                reference: body.reference,
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        if (urlStr.startsWith('https://api.flutterwave.com/v3/payments')) {
+          flutterwaveGatewayInitCount += 1;
+          const body = JSON.parse(String(init?.body || '{}')) as { tx_ref: string };
+          return new Response(
+            JSON.stringify({
+              status: 'success',
+              data: {
+                link: `https://checkout.flutterwave.com/v3/hosted/pay/${body.tx_ref}`,
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return realFetch(input, init);
+      });
+
+    try {
+      const apiFetch = (input: RequestInfo | URL, init?: RequestInit) => {
+        const resolved = typeof input === 'string' && input.startsWith('/') ? `${baseUrl}${input}` : input;
+        return realFetch(resolved, init);
+      };
+
+      // A. Email/Password user with initial expired token -> single retry succeeds with zero duplicate gateway calls
+      let tokenCallCount = 0;
+      const passwordAuth = {
+        currentUser: {
+          uid: 'pwd-user-1',
+          email: 'customer@example.com',
+          displayName: 'Registered Customer',
+          getIdToken: async (forceRefresh?: boolean) => {
+            expect(forceRefresh).toBe(true);
+            tokenCallCount += 1;
+            return tokenCallCount === 1 ? expiredJwt : freshPasswordJwt;
+          },
+        },
+      };
+
+      const pskResult = await fetchWithFirebaseAuth<{
+        provider: string;
+        reference: string;
+        authorizationUrl: string;
+      }>({
+        url: '/api/payments/paystack/initialize',
+        authInstance: passwordAuth,
+        buildBody: (u) => ({
+          amountMinor: 19500,
+          currency: 'NGN',
+          orderId: 'ord-retry-psk-1',
+          idempotencyKey: 'CHK_RETRY_PSK_1',
+          email: u.email,
+        }),
+        fallbackError: 'Paystack checkout unavailable',
+        missingAuthMessage: 'Sign in required',
+        fetchImpl: apiFetch as typeof fetch,
+      });
+
+      expect(tokenCallCount).toBe(2); // Initial attempt + single refresh retry
+      expect(paystackGatewayInitCount).toBe(1); // Rejected at auth middleware before gateway init -> zero duplicates
+      expect(pskResult.provider).toBe('paystack');
+      expect(pskResult.authorizationUrl).toContain('checkout.paystack.com');
+
+      // B. Google Sign-In user after simulated page refresh (authStateReady hydrates currentUser asynchronously)
+      const hydratedGoogleAuth: {
+        currentUser: {
+          uid: string;
+          email: string | null;
+          displayName: string | null;
+          getIdToken: (forceRefresh?: boolean) => Promise<string>;
+        } | null;
+        authStateReady: () => Promise<void>;
+      } = {
+        currentUser: null,
+        authStateReady: async () => {
+          await new Promise((r) => setTimeout(r, 15));
+          hydratedGoogleAuth.currentUser = {
+            uid: 'google-user-1',
+            email: 'googlebuyer@example.com',
+            displayName: 'Google Customer',
+            getIdToken: async (forceRefresh?: boolean) => {
+              expect(forceRefresh).toBe(true);
+              return freshGoogleJwt;
+            },
+          };
+        },
+      };
+
+      const flwResult = await fetchWithFirebaseAuth<{
+        provider: string;
+        reference: string;
+        authorizationUrl: string;
+      }>({
+        url: '/api/payments/flutterwave/initialize',
+        authInstance: hydratedGoogleAuth,
+        buildBody: (u) => ({
+          amountMinor: 35000,
+          currency: 'USD',
+          orderId: 'ord-google-flw-1',
+          idempotencyKey: 'CHK_GOOGLE_FLW_1',
+          email: u.email,
+        }),
+        fallbackError: 'Flutterwave checkout unavailable',
+        missingAuthMessage: 'Sign in required',
+        fetchImpl: apiFetch as typeof fetch,
+      });
+
+      expect(flutterwaveGatewayInitCount).toBe(1);
+      expect(flwResult.provider).toBe('flutterwave');
+      expect(flwResult.authorizationUrl).toContain('checkout.flutterwave.com');
+
+      // C. Verify retry cap: if token remains expired on retry, stops after 2 calls (no infinite loop)
+      let alwaysExpiredCalls = 0;
+      const alwaysExpiredAuth = {
+        currentUser: {
+          uid: 'pwd-user-1',
+          email: 'customer@example.com',
+          displayName: 'Registered Customer',
+          getIdToken: async () => {
+            alwaysExpiredCalls += 1;
+            return expiredJwt;
+          },
+        },
+      };
+
+      await expect(
+        fetchWithFirebaseAuth({
+          url: '/api/payments/paystack/initialize',
+          authInstance: alwaysExpiredAuth,
+          buildBody: () => ({ amountMinor: 5000, currency: 'NGN', orderId: 'ord-loop-cap', idempotencyKey: 'CHK_CAP' }),
+          fallbackError: 'Paystack checkout unavailable',
+          missingAuthMessage: 'Sign in required',
+          fetchImpl: apiFetch as typeof fetch,
+        })
+      ).rejects.toThrow(ApiRequestError);
+      expect(alwaysExpiredCalls).toBe(2);
+
+      // D. Verify NO retry occurs on non-expired invalid token
+      let invalidCalls = 0;
+      const invalidAuth = {
+        currentUser: {
+          uid: 'bad-user',
+          email: 'bad@example.com',
+          displayName: 'Bad',
+          getIdToken: async () => {
+            invalidCalls += 1;
+            return makeMockJwt({ aud: 'spatial-campaign-nlvvl', exp: 9999999999 });
+          },
+        },
+      };
+
+      await expect(
+        fetchWithFirebaseAuth({
+          url: '/api/payments/paystack/initialize',
+          authInstance: invalidAuth,
+          buildBody: () => ({ amountMinor: 5000, currency: 'NGN', orderId: 'ord-no-retry', idempotencyKey: 'CHK_NO_RETRY' }),
+          fallbackError: 'Paystack checkout unavailable',
+          missingAuthMessage: 'Sign in required',
+          fetchImpl: apiFetch as typeof fetch,
+        })
+      ).rejects.toThrow(/Invalid or expired authentication token/);
+      expect(invalidCalls).toBe(1);
+    } finally {
+      verifySpy.mockRestore();
+      fetchSpy.mockRestore();
+      delete process.env.PAYSTACK_SECRET_KEY;
+      delete process.env.FLUTTERWAVE_SECRET_KEY;
+    }
+  });
+});
+
+
 

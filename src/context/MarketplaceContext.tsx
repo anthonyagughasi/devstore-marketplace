@@ -28,6 +28,10 @@ import {
   OperationType,
   testFirestoreConnection,
 } from '../lib/firebase.ts';
+import {
+  fetchWithFirebaseAuth,
+  parseApiResponse,
+} from '../lib/authenticatedFetch.ts';
 import type {
   CartItem,
   Coupon,
@@ -318,37 +322,6 @@ const EMPTY_BALANCES: SellerBalances = {
 
 const DEMO_STATE_STORAGE_KEY = 'devstore_demo_state_v1';
 
-async function parseApiResponse<T = Record<string, any>>(
-  res: Response,
-  fallbackError: string
-): Promise<T> {
-  const rawText = await res.text();
-  let parsed: Record<string, any> | null = null;
-  if (rawText) {
-    try {
-      parsed = JSON.parse(rawText) as Record<string, any>;
-    } catch {
-      parsed = null;
-    }
-  }
-
-  if (!res.ok) {
-    const serverMessage =
-      parsed && typeof parsed.error === 'string' && parsed.error.trim()
-        ? parsed.error
-        : parsed && typeof parsed.message === 'string' && parsed.message.trim()
-        ? parsed.message
-        : null;
-    throw new Error(serverMessage || `${fallbackError} (HTTP ${res.status}). Please retry.`);
-  }
-
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('The server returned an unexpected non-JSON response. Please retry.');
-  }
-
-  return parsed as T;
-}
-
 function mapAuthErrorMessage(
   err: unknown,
   flow: 'signin' | 'register' | 'reset' | 'google'
@@ -400,7 +373,6 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [liveRole, setLiveRole] = useState<UserRole>('customer');
-  const [liveIdToken, setLiveIdToken] = useState<string | null>(null);
 
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [demoRole, setDemoRole] = useState<UserRole>('customer');
@@ -584,9 +556,6 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       setFirebaseUser(user);
       if (user) {
         try {
-          const token = await user.getIdToken();
-          setLiveIdToken(token);
-
           const pendingReg = pendingRegistrationRef.current;
           const resolvedDisplayName =
             (pendingReg && user.email?.toLowerCase() === pendingReg.email
@@ -644,7 +613,6 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           console.error('Auth sync error:', err);
         }
       } else {
-        setLiveIdToken(null);
         setLiveRole('customer');
       }
       setAuthReady(true);
@@ -884,21 +852,6 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     }
   }, [applyDemoPayload, demoFetch, isDemoMode, notify]);
 
-  const getFreshIdToken = useCallback(async (): Promise<string | null> => {
-    const activeUser = auth.currentUser || firebaseUser;
-    if (!activeUser) return liveIdToken;
-    try {
-      const fresh = await activeUser.getIdToken();
-      if (fresh && fresh !== liveIdToken) {
-        setLiveIdToken(fresh);
-      }
-      return fresh;
-    } catch (err) {
-      console.error('Unable to refresh auth token:', err);
-      return liveIdToken;
-    }
-  }, [firebaseUser, liveIdToken]);
-
   const signInWithGoogle = useCallback(async () => {
     try {
       if (isDemoMode) {
@@ -936,8 +889,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       try {
         const cred = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
         await updateProfile(cred.user, { displayName: trimmedName });
-        const freshToken = await cred.user.getIdToken();
-        setLiveIdToken(freshToken);
+        await cred.user.getIdToken(true);
 
         const userRef = doc(db, 'users', cred.user.uid);
         const snap = await getDoc(userRef);
@@ -995,8 +947,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
 
       try {
         const cred = await firebaseSignInWithEmailAndPassword(auth, trimmedEmail, password);
-        const freshToken = await cred.user.getIdToken();
-        setLiveIdToken(freshToken);
+        await cred.user.getIdToken(true);
         setAuthModalOpen(false);
         notify('Signed in successfully.', 'success');
       } catch (err) {
@@ -1226,23 +1177,18 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       orderId: string;
       idempotencyKey: string;
     }) => {
-      const activeUser = auth.currentUser || firebaseUser;
-      const freshToken = await getFreshIdToken();
-      if (!activeUser || !freshToken) {
-        throw new Error('Please sign in or create an account before proceeding to payment.');
-      }
       const endpoint =
         params.provider === 'flutterwave'
           ? '/api/payments/flutterwave/initialize'
           : '/api/payments/paystack/initialize';
+      const providerLabel = params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack';
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${freshToken}`,
-        },
-        body: JSON.stringify({
+      return fetchWithFirebaseAuth<
+        Awaited<ReturnType<MarketplaceContextValue['initializeLivePayment']>>
+      >({
+        url: endpoint,
+        authInstance: auth,
+        buildBody: (activeUser) => ({
           amountMinor: params.amountMinor,
           orderId: params.orderId,
           idempotencyKey: params.idempotencyKey,
@@ -1251,13 +1197,11 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           customerName: activeUser.displayName || undefined,
           callbackUrl: window.location.origin,
         }),
+        fallbackError: `${providerLabel} checkout is currently unavailable`,
+        missingAuthMessage: 'Please sign in or create an account before proceeding to payment.',
       });
-      return parseApiResponse<Awaited<ReturnType<MarketplaceContextValue['initializeLivePayment']>>>(
-        res,
-        `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} checkout is currently unavailable`
-      );
     },
-    [currency, firebaseUser, getFreshIdToken]
+    [currency]
   );
 
   const verifyLivePayment = useCallback(
@@ -1267,34 +1211,27 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       transactionId?: string;
       callbackStatus?: string;
     }) => {
-      const activeUser = auth.currentUser || firebaseUser;
-      const freshToken = await getFreshIdToken();
-      if (!activeUser || !freshToken) {
-        throw new Error('Please sign in to confirm your payment status.');
-      }
       const endpoint =
         params.provider === 'flutterwave'
           ? '/api/payments/flutterwave/verify'
           : '/api/payments/paystack/verify';
+      const providerLabel = params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack';
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${freshToken}`,
-        },
-        body: JSON.stringify({
+      return fetchWithFirebaseAuth<
+        Awaited<ReturnType<MarketplaceContextValue['verifyLivePayment']>>
+      >({
+        url: endpoint,
+        authInstance: auth,
+        buildBody: () => ({
           reference: params.reference,
           transactionId: params.transactionId,
           callbackStatus: params.callbackStatus,
         }),
+        fallbackError: `${providerLabel} payment confirmation could not be completed`,
+        missingAuthMessage: 'Please sign in to confirm your payment status.',
       });
-      return parseApiResponse<Awaited<ReturnType<MarketplaceContextValue['verifyLivePayment']>>>(
-        res,
-        `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} payment confirmation could not be completed`
-      );
     },
-    [firebaseUser, getFreshIdToken]
+    []
   );
 
   const submitLiveSellerApplication = useCallback(
@@ -1373,27 +1310,17 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           return;
         }
 
-        const freshToken = await getFreshIdToken();
-        if (!freshToken) {
-          notify('Please sign in to access your digital downloads.', 'error');
-          return;
-        }
-        const res = await fetch('/api/downloads/issue-token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${freshToken}`,
-          },
-          body: JSON.stringify({
+        const data = await fetchWithFirebaseAuth<{ downloadUrl: string }>({
+          url: '/api/downloads/issue-token',
+          authInstance: auth,
+          buildBody: () => ({
             entitlementId: entitlement.id,
             assetKey: entitlement.assetKey,
             licenseType: entitlement.licenseType,
           }),
+          fallbackError: 'Unable to start download',
+          missingAuthMessage: 'Please sign in to access your digital downloads.',
         });
-        const data = await parseApiResponse<{ downloadUrl: string }>(
-          res,
-          'Unable to start download'
-        );
         const fileRes = await fetch(data.downloadUrl);
         if (!fileRes.ok) {
           await parseApiResponse(fileRes, 'Download is temporarily unavailable');
@@ -1412,7 +1339,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         notify(err instanceof Error ? err.message : 'Download failed.', 'error');
       }
     },
-    [applyDemoPayload, captureDemoStateToken, demoFetch, getFreshIdToken, isDemoMode, notify]
+    [applyDemoPayload, captureDemoStateToken, demoFetch, isDemoMode, notify]
   );
 
   const submitReview = useCallback(

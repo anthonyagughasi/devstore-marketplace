@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   AlertCircle,
@@ -130,10 +130,17 @@ export function CheckoutView() {
     [clearPendingPaymentCallback, notify, verifyLivePayment]
   );
 
+  const verificationAttemptedKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!pendingPaymentCallback || !authReady || !firebaseUser || verifyingCallback) {
       return;
     }
+    const callbackKey = `${pendingPaymentCallback.provider}:${pendingPaymentCallback.reference}`;
+    if (verificationAttemptedKeyRef.current === callbackKey) {
+      return;
+    }
+    verificationAttemptedKeyRef.current = callbackKey;
     setProvider(pendingPaymentCallback.provider);
     runLiveVerification(pendingPaymentCallback);
   }, [authReady, firebaseUser, pendingPaymentCallback, runLiveVerification, verifyingCallback]);

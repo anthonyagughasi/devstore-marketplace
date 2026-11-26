@@ -5,39 +5,72 @@ import type { Request, Response, NextFunction } from 'express';
 import type { DecodedIdToken } from 'firebase-admin/auth';
 import type { UserRole } from '../shared/types.js';
 
-function getFirebaseProjectId(): string {
-  if (process.env.FIREBASE_PROJECT_ID?.trim()) {
-    return process.env.FIREBASE_PROJECT_ID.trim();
-  }
+const AUTH_APP_NAME = 'devstore-firebase-auth';
+const DEFAULT_APPLET_PROJECT_ID = 'spatial-campaign-nlvvl';
+let loggedProjectMismatchWarning = false;
+
+function readAppletConfigProjectId(): string | null {
   try {
     const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
     if (fs.existsSync(configPath)) {
       const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8')) as { projectId?: string };
-      if (parsed.projectId) return parsed.projectId;
+      if (parsed.projectId?.trim()) {
+        return parsed.projectId.trim();
+      }
     }
   } catch {
     // Fall back safely in bundled serverless environments
   }
-  return 'spatial-campaign-nlvvl';
+  return null;
+}
+
+export function getFirebaseProjectId(): string {
+  const envProjectId = process.env.FIREBASE_PROJECT_ID?.trim().replace(/^["']|["']$/g, '') || '';
+  const configProjectId = readAppletConfigProjectId();
+
+  if (configProjectId) {
+    if (envProjectId && envProjectId !== configProjectId && !loggedProjectMismatchWarning) {
+      loggedProjectMismatchWarning = true;
+      console.warn('[DevStore Auth Config Warning]', {
+        reason: 'env_project_id_mismatch',
+        envFirebaseProjectId: envProjectId,
+        clientConfigProjectId: configProjectId,
+        action: 'Using firebase-applet-config.json projectId so token verification matches frontend sign-in.',
+      });
+    }
+    return configProjectId;
+  }
+
+  return envProjectId || DEFAULT_APPLET_PROJECT_ID;
 }
 
 type AdminAuthInstance = ReturnType<typeof import('firebase-admin/auth')['getAuth']>;
 let cachedAdminAuth: AdminAuthInstance | null = null;
+let cachedProjectId: string | null = null;
 
 /**
  * Lazily loads Firebase Admin Auth only when verifying live production Firebase ID tokens.
  * Keeps Demo Mode, health checks, and webhooks insulated from cold-start Admin SDK loading.
  */
 export async function getAdminAuth(): Promise<AdminAuthInstance> {
-  if (cachedAdminAuth) return cachedAdminAuth;
-  const [{ initializeApp, getApps, getApp }, { getAuth }] = await Promise.all([
+  const targetProjectId = getFirebaseProjectId();
+  if (cachedAdminAuth && cachedProjectId === targetProjectId) {
+    return cachedAdminAuth;
+  }
+
+  const [{ initializeApp, getApps }, { getAuth }] = await Promise.all([
     import('firebase-admin/app'),
     import('firebase-admin/auth'),
   ]);
-  const adminApp = getApps().length
-    ? getApp()
-    : initializeApp({ projectId: getFirebaseProjectId() });
+
+  const existingApp = getApps().find((app) => app.name === AUTH_APP_NAME);
+  const adminApp =
+    existingApp && (existingApp.options.projectId === targetProjectId || !existingApp.options.projectId)
+      ? existingApp
+      : initializeApp({ projectId: targetProjectId }, existingApp ? `${AUTH_APP_NAME}-${targetProjectId}` : AUTH_APP_NAME);
+
   cachedAdminAuth = getAuth(adminApp);
+  cachedProjectId = targetProjectId;
   return cachedAdminAuth;
 }
 
@@ -123,6 +156,52 @@ export interface AuthenticatedRequest extends Request {
 }
 
 /**
+ * Safely inspects non-sensitive JWT structural claims ONLY on verification failure
+ * for server-side diagnostics (never logs raw tokens, UIDs, emails, or secrets).
+ */
+function inspectJwtDiagnostics(token: string): {
+  segmentCount: number;
+  alg?: string;
+  hasKid: boolean;
+  aud?: string;
+  iss?: string;
+  expSkewSeconds?: number;
+  signInProvider?: string;
+} {
+  const segments = token.split('.');
+  if (segments.length !== 3) {
+    return { segmentCount: segments.length, hasKid: false };
+  }
+  try {
+    const header = JSON.parse(Buffer.from(segments[0], 'base64url').toString('utf8')) as {
+      alg?: string;
+      kid?: string;
+    };
+    const payload = JSON.parse(Buffer.from(segments[1], 'base64url').toString('utf8')) as {
+      aud?: unknown;
+      iss?: unknown;
+      exp?: unknown;
+      firebase?: { sign_in_provider?: unknown };
+    };
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    return {
+      segmentCount: 3,
+      alg: typeof header.alg === 'string' ? header.alg : undefined,
+      hasKid: typeof header.kid === 'string' && header.kid.length > 0,
+      aud: typeof payload.aud === 'string' ? payload.aud : undefined,
+      iss: typeof payload.iss === 'string' ? payload.iss : undefined,
+      expSkewSeconds: typeof payload.exp === 'number' ? payload.exp - nowSeconds : undefined,
+      signInProvider:
+        typeof payload.firebase?.sign_in_provider === 'string'
+          ? payload.firebase.sign_in_provider
+          : undefined,
+    };
+  } catch {
+    return { segmentCount: segments.length, hasKid: false };
+  }
+}
+
+/**
  * Protects production endpoints. Explicitly rejects demo session tokens and unauthenticated callers.
  */
 export async function requireProductionAuth(
@@ -133,30 +212,183 @@ export async function requireProductionAuth(
   if (req.headers['x-demo-token']) {
     return res.status(403).json({
       error: 'Demo sessions are strictly isolated and cannot access production endpoints.',
+      code: 'DEMO_TOKEN_FORBIDDEN',
     });
   }
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Authentication required.' });
+  const rawAuthHeader = req.headers.authorization;
+  const authHeader = Array.isArray(rawAuthHeader) ? rawAuthHeader[0] : rawAuthHeader;
+  if (!authHeader || !authHeader.trim()) {
+    console.warn('[DevStore Auth Rejected]', {
+      reason: 'missing_authorization_header',
+      method: req.method,
+      path: req.path,
+    });
+    return res.status(401).json({
+      error: 'Authentication required. Please sign in to continue.',
+      code: 'AUTH_MISSING',
+    });
   }
 
-  const token = authHeader.slice('Bearer '.length).trim();
+  const bearerMatch = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
+  if (!bearerMatch) {
+    console.warn('[DevStore Auth Rejected]', {
+      reason: 'non_bearer_authorization_header',
+      method: req.method,
+      path: req.path,
+    });
+    return res.status(401).json({
+      error: 'Invalid authentication header format.',
+      code: 'AUTH_MALFORMED',
+    });
+  }
+
+  const token = bearerMatch[1].trim();
+  if (!token || token === 'null' || token === 'undefined' || /^["'].*["']$/.test(token)) {
+    console.warn('[DevStore Auth Rejected]', {
+      reason: 'empty_or_placeholder_bearer_token',
+      method: req.method,
+      path: req.path,
+    });
+    return res.status(401).json({
+      error: 'Invalid authentication header format.',
+      code: 'AUTH_MALFORMED',
+    });
+  }
+
   // Reject demo tokens passed inside Bearer header
   const maybeDemo = verifyHmacToken<SignedTokenPayload>(token);
   if (maybeDemo?.isDemo) {
     return res.status(403).json({
       error: 'Demo tokens cannot access live production APIs.',
+      code: 'DEMO_TOKEN_FORBIDDEN',
+    });
+  }
+
+  const expectedProjectId = getFirebaseProjectId();
+
+  let adminAuth: AdminAuthInstance;
+  try {
+    adminAuth = await getAdminAuth();
+  } catch (err) {
+    const code = typeof err === 'object' && err !== null && 'code' in err ? String((err as { code?: unknown }).code) : 'init_error';
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[DevStore Auth Admin SDK Init Error]', {
+      code,
+      message,
+      expectedProjectId,
+      method: req.method,
+      path: req.path,
+    });
+    return res.status(503).json({
+      error: 'Unable to verify your sign-in session right now. Please try again in a moment.',
+      code: 'AUTH_SERVICE_ERROR',
     });
   }
 
   try {
-    const adminAuth = await getAdminAuth();
     const decoded = await adminAuth.verifyIdToken(token);
     req.prodUser = decoded;
     return next();
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired authentication token.' });
+  } catch (err) {
+    const firebaseCode =
+      typeof err === 'object' && err !== null && 'code' in err && typeof (err as { code?: unknown }).code === 'string'
+        ? (err as { code: string }).code
+        : '';
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    const diagnostics = inspectJwtDiagnostics(token);
+
+    if (firebaseCode === 'auth/id-token-expired') {
+      console.warn('[DevStore Auth Rejected]', {
+        reason: 'token_expired',
+        firebaseCode,
+        method: req.method,
+        path: req.path,
+        expectedProjectId,
+        tokenAud: diagnostics.aud,
+        expSkewSeconds: diagnostics.expSkewSeconds,
+        signInProvider: diagnostics.signInProvider,
+      });
+      return res.status(401).json({
+        error: 'Your sign-in session expired. Please sign in again to continue.',
+        code: 'TOKEN_EXPIRED',
+      });
+    }
+
+    if (firebaseCode === 'auth/id-token-revoked') {
+      console.warn('[DevStore Auth Rejected]', {
+        reason: 'token_revoked',
+        firebaseCode,
+        method: req.method,
+        path: req.path,
+      });
+      return res.status(401).json({
+        error: 'Your sign-in session is no longer active. Please sign in again.',
+        code: 'TOKEN_REVOKED',
+      });
+    }
+
+    const isProjectMismatch =
+      rawMessage.includes('incorrect "aud"') ||
+      rawMessage.includes('incorrect "iss"') ||
+      (diagnostics.aud !== undefined &&
+        diagnostics.aud !== expectedProjectId &&
+        !diagnostics.aud.includes('identitytoolkit.googleapis.com'));
+
+    if (isProjectMismatch) {
+      console.error('[DevStore Auth Project Mismatch]', {
+        firebaseCode,
+        method: req.method,
+        path: req.path,
+        expectedProjectId,
+        tokenAud: diagnostics.aud,
+        tokenIss: diagnostics.iss,
+        envFirebaseProjectId: process.env.FIREBASE_PROJECT_ID || null,
+      });
+      return res.status(401).json({
+        error: 'Authentication configuration mismatch. Please sign out, refresh the page, and sign in again.',
+        code: 'AUTH_PROJECT_MISMATCH',
+      });
+    }
+
+    const isInfraOrCertFetchError =
+      firebaseCode === 'auth/invalid-credential' ||
+      firebaseCode === 'auth/internal-error' ||
+      /Error fetching public keys|Error fetching Json Web Keys|ECONNRESET|ETIMEDOUT|ENOTFOUND|network/i.test(
+        rawMessage
+      );
+
+    if (isInfraOrCertFetchError) {
+      console.error('[DevStore Auth Verification Service Error]', {
+        firebaseCode,
+        message: rawMessage,
+        method: req.method,
+        path: req.path,
+        expectedProjectId,
+      });
+      return res.status(503).json({
+        error: 'Unable to verify your sign-in session right now. Please try again in a moment.',
+        code: 'AUTH_SERVICE_ERROR',
+      });
+    }
+
+    console.warn('[DevStore Auth Rejected]', {
+      reason: 'invalid_token',
+      firebaseCode: firebaseCode || 'unknown',
+      detail: rawMessage.split(' See https://')[0],
+      method: req.method,
+      path: req.path,
+      expectedProjectId,
+      segmentCount: diagnostics.segmentCount,
+      alg: diagnostics.alg,
+      hasKid: diagnostics.hasKid,
+      tokenAud: diagnostics.aud,
+      signInProvider: diagnostics.signInProvider,
+    });
+    return res.status(401).json({
+      error: 'Invalid or expired authentication token.',
+      code: 'INVALID_TOKEN',
+    });
   }
 }
 
@@ -203,7 +435,13 @@ export function createRateLimiter(maxRequests: number, windowMs: number) {
       : typeof forwarded === 'string'
       ? forwarded.split(',')[0]?.trim()
       : undefined;
-    const key = req.ip || forwardedIp || req.socket?.remoteAddress || 'unknown';
+    let resolvedIp: string | undefined;
+    try {
+      resolvedIp = req.ip;
+    } catch {
+      resolvedIp = undefined;
+    }
+    const key = resolvedIp || forwardedIp || req.socket?.remoteAddress || 'unknown';
     const now = Date.now();
     const cutoff = now - windowMs;
     const timestamps = (hits.get(key) || []).filter((t) => t > cutoff);
