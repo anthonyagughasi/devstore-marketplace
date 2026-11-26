@@ -34,7 +34,7 @@ export function StorefrontHome() {
                 Physical craft and licensed digital tools in one global marketplace.
               </h1>
               <p className="text-base text-zinc-600 leading-relaxed max-w-xl">
-                Shop verified international hardware studios, architectural home goods, and production-ready templates with multi-currency checkout and instant encrypted downloads.
+                Shop verified international hardware studios, architectural home goods, and production-ready templates with multi-currency checkout and instant digital downloads.
               </p>
             </div>
 
@@ -104,12 +104,12 @@ export function StorefrontHome() {
             {
               icon: Layers,
               title: 'Digital Licensing',
-              detail: 'Personal, Commercial & Extended download vaults',
+              detail: 'Personal, Commercial & Extended license tiers',
             },
             {
               icon: ShieldCheck,
-              title: 'Demo Mode',
-              detail: 'Explore Customer Demo, Seller Demo & Admin Demo without signup',
+              title: 'Explore DevStore',
+              detail: 'Try Customer, Seller, and Admin views with sample data',
             },
           ].map(({ icon: Icon, title, detail }) => (
             <div
@@ -142,7 +142,7 @@ export function StorefrontHome() {
               17 specialized digital asset categories with controlled license delivery.
             </h2>
             <p className="text-sm sm:text-base text-zinc-300 leading-relaxed max-w-2xl">
-              Explore Next.js templates, WordPress plugins, Figma UI kits, isometric icon suites, source code, and technical handbooks. Every file is stored privately and streamed only to verified buyers via time-limited signed URLs.
+              Explore Next.js templates, WordPress plugins, Figma UI kits, isometric icon suites, source code, and technical handbooks. Every digital purchase unlocks instant downloads and version updates in your account library.
             </p>
             <div className="pt-2 flex flex-wrap gap-3">
               <button

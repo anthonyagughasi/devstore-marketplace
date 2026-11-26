@@ -58,17 +58,46 @@ function isSafeHttpsUrl(value: string | undefined): boolean {
   }
 }
 
+function resolveRequestOrigin(req: Request): string {
+  const configuredAppUrl = process.env.APP_URL?.trim();
+  if (configuredAppUrl) {
+    const normalized = /^https?:\/\//i.test(configuredAppUrl)
+      ? configuredAppUrl
+      : `https://${configuredAppUrl}`;
+    try {
+      return new URL(normalized).origin;
+    } catch {
+      // Fall back to proxy/host headers below
+    }
+  }
+
+  const forwardedHostRaw = req.headers['x-forwarded-host'];
+  const forwardedHost = Array.isArray(forwardedHostRaw)
+    ? forwardedHostRaw[0]
+    : forwardedHostRaw?.split(',')[0]?.trim();
+  const host = forwardedHost || req.get('host');
+
+  const forwardedProtoRaw = req.headers['x-forwarded-proto'];
+  const forwardedProto = Array.isArray(forwardedProtoRaw)
+    ? forwardedProtoRaw[0]
+    : forwardedProtoRaw?.split(',')[0]?.trim();
+  const proto = forwardedProto || req.protocol || 'https';
+
+  if (host) {
+    return `${proto}://${host}`;
+  }
+  return 'http://localhost:3000';
+}
+
 function buildProviderCallbackUrl(
   req: Request,
   provider: PaymentProviderId,
   requestedUrl?: string
 ): string {
-  const defaultOrigin =
-    process.env.APP_URL?.trim() ||
-    (req.get('host') ? `${req.protocol}://${req.get('host')}` : 'http://localhost:3000');
+  const defaultOrigin = resolveRequestOrigin(req);
 
   let base = defaultOrigin;
-  if (requestedUrl) {
+  if (requestedUrl && requestedUrl !== 'null') {
     try {
       const parsed = new URL(requestedUrl);
       const isLocalDev =
@@ -214,40 +243,51 @@ export function createApp() {
     res: Response
   ) {
     try {
-      const { amountMinor, currency, email, callbackUrl, orderId, idempotencyKey } =
-        req.body as {
-          amountMinor?: number;
-          currency?: CurrencyCode;
-          email?: string;
-          callbackUrl?: string;
-          orderId?: string;
-          idempotencyKey?: string;
-        };
+      const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
+        amountMinor?: number;
+        currency?: CurrencyCode;
+        email?: string;
+        customerName?: string;
+        callbackUrl?: string;
+        orderId?: string;
+        idempotencyKey?: string;
+      };
+      const { amountMinor, currency, email, customerName, callbackUrl, orderId, idempotencyKey } = body;
 
       if (!Number.isInteger(amountMinor) || (amountMinor ?? 0) <= 0) {
-        return res.status(400).json({ error: 'amountMinor must be a positive integer.' });
+        return res.status(400).json({ error: 'Order total must be greater than zero.' });
       }
       if (!currency || !VALID_CURRENCIES.includes(currency)) {
-        return res.status(400).json({ error: 'Unsupported currency.' });
+        return res.status(400).json({ error: 'Selected currency is not supported for checkout.' });
       }
+
+      const candidateEmail = (email || req.prodUser?.email || '').trim();
+      const resolvedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidateEmail)
+        ? candidateEmail
+        : 'customer@devstore.example.com';
+
+      const resolvedName =
+        (typeof customerName === 'string' && customerName.trim()) ||
+        (typeof req.prodUser?.name === 'string' && req.prodUser.name.trim()) ||
+        undefined;
 
       const resolvedOrderId =
         typeof orderId === 'string' && orderId.trim()
           ? orderId.trim().slice(0, 80)
           : `ord-live-${Date.now()}`;
       const resolvedCallback = buildProviderCallbackUrl(req, provider, callbackUrl);
-      const resolvedEmail = email || req.prodUser?.email || 'customer@devstore.example.com';
 
       if (provider === 'paystack') {
         if (!paystackService.adapter.supportedCurrencies.includes(currency)) {
           return res.status(400).json({
-            error: `Paystack does not support ${currency}. Supported currencies: ${paystackService.adapter.supportedCurrencies.join(', ')}.`,
+            error: `Paystack supports ${paystackService.adapter.supportedCurrencies.join(', ')}. Choose Flutterwave for ${currency}.`,
           });
         }
         const result = await paystackService.initializeCheckout({
           userId: req.prodUser!.uid,
           orderId: resolvedOrderId,
           email: resolvedEmail,
+          customerName: resolvedName,
           amountMinor: amountMinor!,
           currency,
           callbackUrl: resolvedCallback,
@@ -260,6 +300,7 @@ export function createApp() {
         userId: req.prodUser!.uid,
         orderId: resolvedOrderId,
         email: resolvedEmail,
+        customerName: resolvedName,
         amountMinor: amountMinor!,
         currency,
         callbackUrl: resolvedCallback,
@@ -267,8 +308,16 @@ export function createApp() {
       });
       return res.json(result);
     } catch (err) {
-      return res.status(500).json({
-        error: err instanceof Error ? err.message : `${provider} initialization error.`,
+      const providerLabel = provider === 'flutterwave' ? 'Flutterwave' : 'Paystack';
+      console.error(`[DevStore ${providerLabel} Initialize Failure]`, {
+        uid: req.prodUser?.uid,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return res.status(502).json({
+        error:
+          err instanceof Error
+            ? err.message
+            : `Unable to start ${providerLabel} checkout right now. Please try again.`,
       });
     }
   }
@@ -279,12 +328,13 @@ export function createApp() {
     res: Response
   ) {
     try {
-      const { reference, transactionId, callbackStatus } = req.body as {
+      const body = (req.body && typeof req.body === 'object' ? req.body : {}) as {
         reference?: string;
         transactionId?: string;
         callbackStatus?: string;
       };
-      if (!reference || typeof reference !== 'string') {
+      const { reference, transactionId, callbackStatus } = body;
+      if (!reference || typeof reference !== 'string' || !reference.trim()) {
         return res.status(400).json({ error: 'Payment reference is required.' });
       }
 
@@ -305,8 +355,16 @@ export function createApp() {
       if (err instanceof CrossProviderMismatchError) {
         return res.status(400).json({ error: err.message });
       }
-      return res.status(500).json({
-        error: err instanceof Error ? err.message : `${provider} verification failed.`,
+      const providerLabel = provider === 'flutterwave' ? 'Flutterwave' : 'Paystack';
+      console.error(`[DevStore ${providerLabel} Verify Failure]`, {
+        uid: req.prodUser?.uid,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return res.status(502).json({
+        error:
+          err instanceof Error
+            ? err.message
+            : `Unable to confirm ${providerLabel} payment right now. Please try again.`,
       });
     }
   }

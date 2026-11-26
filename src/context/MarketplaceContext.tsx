@@ -1,8 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword as firebaseSignInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updateProfile,
   type User as FirebaseUser,
 } from 'firebase/auth';
 import {
@@ -13,6 +17,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
   where,
 } from 'firebase/firestore';
 import {
@@ -158,6 +163,9 @@ interface MarketplaceContextValue {
 
   // Live Auth Controls
   signInWithGoogle: () => Promise<void>;
+  registerWithEmailPassword: (fullName: string, email: string, password: string) => Promise<void>;
+  signInWithEmailPassword: (email: string, password: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
   signOutLive: () => Promise<void>;
 
   // Marketplace Data
@@ -341,6 +349,47 @@ async function parseApiResponse<T = Record<string, any>>(
   return parsed as T;
 }
 
+function mapAuthErrorMessage(
+  err: unknown,
+  flow: 'signin' | 'register' | 'reset' | 'google'
+): string {
+  const code =
+    typeof err === 'object' && err !== null && 'code' in err && typeof (err as { code?: unknown }).code === 'string'
+      ? (err as { code: string }).code
+      : '';
+
+  switch (code) {
+    case 'auth/email-already-in-use':
+      return 'An account with this email address already exists. Please sign in instead.';
+    case 'auth/invalid-email':
+      return 'Please enter a valid email address.';
+    case 'auth/weak-password':
+      return 'Please choose a stronger password with at least 8 characters.';
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+    case 'auth/user-not-found':
+      return 'Incorrect email or password. Please check your details and try again.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Please wait a few minutes before trying again.';
+    case 'auth/user-disabled':
+      return 'This account has been disabled. Please contact support for assistance.';
+    case 'auth/operation-not-allowed':
+      return 'Email and password sign-in is not enabled in the project authentication settings yet. Please enable Email/Password sign-in or continue with Google.';
+    case 'auth/network-request-failed':
+      return 'Network connection interrupted. Please check your connection and try again.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'Google sign-in was cancelled.';
+    case 'auth/popup-blocked':
+      return 'Sign-in window was blocked by your browser. Please allow popups and try again.';
+    default:
+      if (flow === 'register') return 'Unable to create your account right now. Please try again.';
+      if (flow === 'reset') return 'Unable to process your password reset request right now. Please try again.';
+      if (flow === 'google') return 'Google sign-in could not be completed. Please try again.';
+      return 'Unable to sign in right now. Please try again.';
+  }
+}
+
 export function MarketplaceProvider({ children }: { children: React.ReactNode }) {
   const [view, setView] = useState<AppView>('home');
   const [selectedProductSlug, setSelectedProductSlug] = useState<string | null>(null);
@@ -361,6 +410,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const [demoError, setDemoError] = useState<string | null>(null);
   const demoStateTokenRef = useRef<string | null>(null);
   const demoSessionLockRef = useRef<boolean>(false);
+  const pendingRegistrationRef = useRef<{ email: string; displayName: string } | null>(null);
 
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
@@ -537,6 +587,12 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           const token = await user.getIdToken();
           setLiveIdToken(token);
 
+          const pendingReg = pendingRegistrationRef.current;
+          const resolvedDisplayName =
+            (pendingReg && user.email?.toLowerCase() === pendingReg.email
+              ? pendingReg.displayName
+              : user.displayName?.trim()) || 'DevStore Customer';
+
           // Ensure public-safe user doc & private PII doc exist
           const userRef = doc(db, 'users', user.uid);
           const snap = await getDoc(userRef);
@@ -547,7 +603,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
             try {
               await setDoc(userRef, {
                 uid: user.uid,
-                displayName: user.displayName || 'DevStore Customer',
+                displayName: resolvedDisplayName,
                 role: 'customer',
                 accountStatus: 'active',
                 avatarUrl: user.photoURL || '',
@@ -566,7 +622,22 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
             }
             setLiveRole(isBootAdmin ? 'admin' : 'customer');
           } else {
-            const roleVal = snap.data().role as UserRole;
+            const data = snap.data();
+            const roleVal = data.role as UserRole;
+            if (
+              pendingReg &&
+              user.email?.toLowerCase() === pendingReg.email &&
+              data.displayName !== pendingReg.displayName
+            ) {
+              try {
+                await updateDoc(userRef, {
+                  displayName: pendingReg.displayName,
+                  updatedAt: serverTimestamp(),
+                });
+              } catch (err) {
+                console.error('Display name sync warning:', err);
+              }
+            }
             setLiveRole(isBootAdmin ? 'admin' : roleVal || 'customer');
           }
         } catch (err) {
@@ -640,7 +711,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       overrideStateToken?: string | null
     ) => {
       const token = overrideToken || demoToken;
-      if (!token) throw new Error('Demo session not active.');
+      if (!token) throw new Error('Preview session is not active.');
 
       const stateToken =
         overrideStateToken !== undefined
@@ -745,10 +816,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
             : targetRole === 'seller'
             ? 'Seller Demo'
             : 'Customer Demo';
-        notify(
-          `Entered Demo Mode (${demoLabel}). All actions are simulated.`,
-          'success'
-        );
+        notify(`Entered ${demoLabel}. Exploring with sample store data.`, 'success');
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unable to start demo session.';
         setDemoError(message);
@@ -792,7 +860,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     setSellerBalances(EMPTY_BALANCES);
     setView('home');
     loadLivePublicCatalog();
-    notify('Exited Demo Mode. Returned to live storefront.', 'info');
+    notify('Exited Demo Mode. Returned to storefront.', 'info');
   }, [loadLivePublicCatalog, notify]);
 
   const resetDemoData = useCallback(async () => {
@@ -808,13 +876,28 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           sellerBalances: SellerBalances;
         }
       );
-      notify('Demo sandbox restored to fresh seeded data.', 'success');
+      notify('Demo store restored to initial sample data.', 'success');
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Reset failed.', 'error');
     } finally {
       setDemoLoading(false);
     }
   }, [applyDemoPayload, demoFetch, isDemoMode, notify]);
+
+  const getFreshIdToken = useCallback(async (): Promise<string | null> => {
+    const activeUser = auth.currentUser || firebaseUser;
+    if (!activeUser) return liveIdToken;
+    try {
+      const fresh = await activeUser.getIdToken();
+      if (fresh && fresh !== liveIdToken) {
+        setLiveIdToken(fresh);
+      }
+      return fresh;
+    } catch (err) {
+      console.error('Unable to refresh auth token:', err);
+      return liveIdToken;
+    }
+  }, [firebaseUser, liveIdToken]);
 
   const signInWithGoogle = useCallback(async () => {
     try {
@@ -825,9 +908,126 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       setAuthModalOpen(false);
       notify('Signed in with Google.', 'success');
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Sign-in cancelled or failed.', 'error');
+      const message = mapAuthErrorMessage(err, 'google');
+      notify(message, 'error');
+      throw new Error(message);
     }
   }, [exitDemoMode, isDemoMode, notify]);
+
+  const registerWithEmailPassword = useCallback(
+    async (fullName: string, email: string, password: string) => {
+      const trimmedName = fullName.trim();
+      const trimmedEmail = email.trim().toLowerCase();
+      if (trimmedName.length < 2 || trimmedName.length > 100) {
+        throw new Error('Please enter your full name (2 to 100 characters).');
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        throw new Error('Please enter a valid email address.');
+      }
+      if (password.length < 8) {
+        throw new Error('Password must be at least 8 characters long.');
+      }
+
+      if (isDemoMode) {
+        exitDemoMode();
+      }
+
+      pendingRegistrationRef.current = { email: trimmedEmail, displayName: trimmedName };
+      try {
+        const cred = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
+        await updateProfile(cred.user, { displayName: trimmedName });
+        const freshToken = await cred.user.getIdToken();
+        setLiveIdToken(freshToken);
+
+        const userRef = doc(db, 'users', cred.user.uid);
+        const snap = await getDoc(userRef);
+        if (!snap.exists()) {
+          await setDoc(userRef, {
+            uid: cred.user.uid,
+            displayName: trimmedName,
+            role: 'customer',
+            accountStatus: 'active',
+            avatarUrl: '',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          await setDoc(doc(db, 'users', cred.user.uid, 'private', 'info'), {
+            ownerId: cred.user.uid,
+            email: trimmedEmail,
+            phone: '',
+            defaultCurrency: 'USD',
+            updatedAt: serverTimestamp(),
+          });
+        } else if (snap.data().displayName !== trimmedName) {
+          await updateDoc(userRef, {
+            displayName: trimmedName,
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        setLiveRole('customer');
+        setAuthModalOpen(false);
+        notify(`Welcome to DevStore, ${trimmedName.split(' ')[0]}!`, 'success');
+      } catch (err) {
+        console.error('Account registration error:', err);
+        const message = mapAuthErrorMessage(err, 'register');
+        throw new Error(message);
+      } finally {
+        pendingRegistrationRef.current = null;
+      }
+    },
+    [exitDemoMode, isDemoMode, notify]
+  );
+
+  const signInWithEmailPassword = useCallback(
+    async (email: string, password: string) => {
+      const trimmedEmail = email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        throw new Error('Please enter a valid email address.');
+      }
+      if (!password) {
+        throw new Error('Please enter your password.');
+      }
+
+      if (isDemoMode) {
+        exitDemoMode();
+      }
+
+      try {
+        const cred = await firebaseSignInWithEmailAndPassword(auth, trimmedEmail, password);
+        const freshToken = await cred.user.getIdToken();
+        setLiveIdToken(freshToken);
+        setAuthModalOpen(false);
+        notify('Signed in successfully.', 'success');
+      } catch (err) {
+        console.error('Email sign-in error:', err);
+        const message = mapAuthErrorMessage(err, 'signin');
+        throw new Error(message);
+      }
+    },
+    [exitDemoMode, isDemoMode, notify]
+  );
+
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      throw new Error('Please enter a valid email address.');
+    }
+    try {
+      await sendPasswordResetEmail(auth, trimmedEmail);
+    } catch (err) {
+      const code =
+        typeof err === 'object' && err !== null && 'code' in err && typeof (err as { code?: unknown }).code === 'string'
+          ? (err as { code: string }).code
+          : '';
+      // Never disclose whether an account exists for the supplied address
+      if (code === 'auth/user-not-found') {
+        return;
+      }
+      console.error('Password reset error:', err);
+      throw new Error(mapAuthErrorMessage(err, 'reset'));
+    }
+  }, []);
 
   const signOutLive = useCallback(async () => {
     await signOut(auth);
@@ -1026,8 +1226,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       orderId: string;
       idempotencyKey: string;
     }) => {
-      if (!firebaseUser || !liveIdToken) {
-        throw new Error('Please sign in with Google before initiating a live payment.');
+      const activeUser = auth.currentUser || firebaseUser;
+      const freshToken = await getFreshIdToken();
+      if (!activeUser || !freshToken) {
+        throw new Error('Please sign in or create an account before proceeding to payment.');
       }
       const endpoint =
         params.provider === 'flutterwave'
@@ -1038,23 +1240,24 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${liveIdToken}`,
+          Authorization: `Bearer ${freshToken}`,
         },
         body: JSON.stringify({
           amountMinor: params.amountMinor,
           orderId: params.orderId,
           idempotencyKey: params.idempotencyKey,
           currency,
-          email: firebaseUser.email,
+          email: activeUser.email,
+          customerName: activeUser.displayName || undefined,
           callbackUrl: window.location.origin,
         }),
       });
       return parseApiResponse<Awaited<ReturnType<MarketplaceContextValue['initializeLivePayment']>>>(
         res,
-        `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} payment initialization failed`
+        `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} checkout is currently unavailable`
       );
     },
-    [currency, firebaseUser, liveIdToken]
+    [currency, firebaseUser, getFreshIdToken]
   );
 
   const verifyLivePayment = useCallback(
@@ -1064,8 +1267,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       transactionId?: string;
       callbackStatus?: string;
     }) => {
-      if (!firebaseUser || !liveIdToken) {
-        throw new Error('Sign in with your account to verify payment status.');
+      const activeUser = auth.currentUser || firebaseUser;
+      const freshToken = await getFreshIdToken();
+      if (!activeUser || !freshToken) {
+        throw new Error('Please sign in to confirm your payment status.');
       }
       const endpoint =
         params.provider === 'flutterwave'
@@ -1076,7 +1281,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${liveIdToken}`,
+          Authorization: `Bearer ${freshToken}`,
         },
         body: JSON.stringify({
           reference: params.reference,
@@ -1086,10 +1291,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       });
       return parseApiResponse<Awaited<ReturnType<MarketplaceContextValue['verifyLivePayment']>>>(
         res,
-        `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} verification failed`
+        `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} payment confirmation could not be completed`
       );
     },
-    [firebaseUser, liveIdToken]
+    [firebaseUser, getFreshIdToken]
   );
 
   const submitLiveSellerApplication = useCallback(
@@ -1100,7 +1305,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       description: string;
     }) => {
       if (!firebaseUser) {
-        throw new Error('Sign in with Google to submit a seller application.');
+        throw new Error('Please sign in to submit a seller application.');
       }
       const appId = `app-${Date.now()}`;
       try {
@@ -1164,19 +1369,20 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
             state: any;
             sellerBalances: SellerBalances;
           });
-          notify(`Downloaded ${entitlement.productTitle} via signed temporary URL.`, 'success');
+          notify(`Downloaded ${entitlement.productTitle}.`, 'success');
           return;
         }
 
-        if (!liveIdToken) {
-          notify('Sign in to access verified digital downloads.', 'error');
+        const freshToken = await getFreshIdToken();
+        if (!freshToken) {
+          notify('Please sign in to access your digital downloads.', 'error');
           return;
         }
         const res = await fetch('/api/downloads/issue-token', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${liveIdToken}`,
+            Authorization: `Bearer ${freshToken}`,
           },
           body: JSON.stringify({
             entitlementId: entitlement.id,
@@ -1186,12 +1392,12 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         });
         const data = await parseApiResponse<{ downloadUrl: string }>(
           res,
-          'Failed to issue download URL'
+          'Unable to start download'
         );
         const fileRes = await fetch(data.downloadUrl);
         if (!fileRes.ok) {
-          await parseApiResponse(fileRes, 'Download file stream unavailable');
-          throw new Error('Download file stream unavailable.');
+          await parseApiResponse(fileRes, 'Download is temporarily unavailable');
+          throw new Error('Download is temporarily unavailable.');
         }
         const blob = await fileRes.blob();
         const url = URL.createObjectURL(blob);
@@ -1206,7 +1412,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         notify(err instanceof Error ? err.message : 'Download failed.', 'error');
       }
     },
-    [applyDemoPayload, captureDemoStateToken, demoFetch, isDemoMode, liveIdToken, notify]
+    [applyDemoPayload, captureDemoStateToken, demoFetch, getFreshIdToken, isDemoMode, notify]
   );
 
   const submitReview = useCallback(
@@ -1223,7 +1429,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         notify('Review published.', 'success');
         return;
       }
-      notify('Enter Demo Mode (Customer Demo) or sign in to submit verified reviews.', 'info');
+      notify('Sign in or enter Customer Demo to submit a review.', 'info');
     },
     [demoFetch, isDemoMode, notify]
   );
@@ -1480,6 +1686,9 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       exitDemoMode,
       resetDemoData,
       signInWithGoogle,
+      registerWithEmailPassword,
+      signInWithEmailPassword,
+      requestPasswordReset,
       signOutLive,
       departments,
       stores,
@@ -1589,8 +1798,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       products,
       questions,
       recentlyViewedIds,
+      registerWithEmailPassword,
       removeFromCart,
       requestDemoWithdrawal,
+      requestPasswordReset,
       resetDemoData,
       resolveDemoDispute,
       reviewDemoApplication,
@@ -1602,6 +1813,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       sellerApplications,
       sellerBalances,
       sellerOrders,
+      signInWithEmailPassword,
       signInWithGoogle,
       signOutLive,
       simulateDemoCheckout,

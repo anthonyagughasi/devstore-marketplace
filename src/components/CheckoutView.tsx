@@ -117,8 +117,12 @@ export function CheckoutView() {
             : `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} payment status: ${verifiedRes.status}.`,
           verifiedRes.verified ? 'success' : 'info'
         );
-      } catch {
-        notify('Unable to confirm payment status right now. Please try again.', 'error');
+      } catch (err) {
+        const msg =
+          err instanceof Error && err.message.trim() && !/\/api\/|https?:\/\//i.test(err.message)
+            ? err.message
+            : 'Unable to confirm payment status right now. Please try again.';
+        notify(msg, 'error');
       } finally {
         setVerifyingCallback(false);
       }
@@ -253,9 +257,12 @@ export function CheckoutView() {
       }
 
       if (!res.configured || !res.authorizationUrl) {
-        const friendly = `${providerLabel} checkout is currently unavailable. Please choose another payment method or explore Demo Mode.`;
-        setCheckoutError(friendly);
-        notify(friendly, 'error');
+        const safeMessage =
+          res.message && !/\/api\/|https?:\/\/|PAYSTACK_|FLUTTERWAVE_|ENV/i.test(res.message)
+            ? res.message
+            : `${providerLabel} checkout is currently unavailable. Please choose another payment method or try again later.`;
+        setCheckoutError(safeMessage);
+        notify(safeMessage, 'error');
         setSubmitting(false);
         return;
       }
@@ -272,8 +279,15 @@ export function CheckoutView() {
 
       window.location.assign(res.authorizationUrl);
       setTimeout(() => setSubmitting(false), 4000);
-    } catch {
-      const friendly = `Unable to start ${providerLabel} checkout right now. Please try again or switch payment methods.`;
+    } catch (err) {
+      const rawMessage = err instanceof Error ? err.message : '';
+      const hasTechnicalLeak = /\/api\/|https?:\/\/|PAYSTACK_|FLUTTERWAVE_|firebase|stack/i.test(
+        rawMessage
+      );
+      const friendly =
+        rawMessage.trim() && !hasTechnicalLeak
+          ? rawMessage
+          : `Unable to start ${providerLabel} checkout right now. Please try again or switch payment methods.`;
       setCheckoutError(friendly);
       notify(friendly, 'error');
       setSubmitting(false);
@@ -489,10 +503,10 @@ export function CheckoutView() {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl sm:text-3xl font-bold text-zinc-900">
-            Multi-Vendor Checkout
+            Checkout
           </h1>
           <p className="text-sm text-zinc-600 mt-1">
-            One unified customer checkout split automatically into seller-specific fulfilment orders.
+            Complete your order across multiple independent sellers in one secure payment.
           </p>
         </div>
       </div>
@@ -680,7 +694,7 @@ export function CheckoutView() {
                       </span>
                     </div>
                     <p className="text-xs text-zinc-600">
-                      Demo Mode never invokes live Paystack or Flutterwave APIs. Simulate an outcome for{' '}
+                      Preview mode uses simulated transactions with no real charges. Select a simulated outcome for{' '}
                       <strong>{provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'}</strong>:
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -838,7 +852,7 @@ export function CheckoutView() {
               <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
                 <AlertCircle className="w-3.5 h-3.5 text-blue-600" />
                 <span>
-                  Multi-Vendor Order Split ({vendorGroups.length} seller
+                  Order Summary by Seller ({vendorGroups.length} seller
                   {vendorGroups.length === 1 ? '' : 's'})
                 </span>
               </div>

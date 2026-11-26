@@ -81,7 +81,7 @@ export function AdminDashboard() {
             Administrator Console
           </h1>
           <p className="text-sm text-zinc-600 max-w-lg mx-auto">
-            Live administrator controls are restricted to verified platform administrators via server-side RBAC. Enter Demo Mode (Admin Demo) to test moderation, payouts, and commission tools without registration.
+            Administrator controls are restricted to authorized store administrators. Enter Admin Demo to preview moderation, payouts, and marketplace settings.
           </p>
           <button
             type="button"
@@ -189,7 +189,7 @@ export function AdminDashboard() {
 
               <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-3">
                 <h2 className="font-display text-base font-bold text-zinc-900">
-                  Recent Admin &amp; Sandbox Activity
+                  Recent Store &amp; Demo Activity
                 </h2>
                 <div className="space-y-2 text-xs">
                   {demoActivityLogs.slice(0, 8).map((log) => (
@@ -643,7 +643,7 @@ export function AdminDashboard() {
                       Supported Currencies &amp; Manual Exchange Rates
                     </h3>
                     <p className="text-zinc-500 mt-0.5">
-                      External FX API is optional. Historical orders preserve their original transaction currency.
+                      Use manual store exchange rates or an automatic rate feed. Existing orders keep their original currency.
                     </p>
                   </div>
                   <span className="font-mono text-[11px] px-2.5 py-1 bg-stone-100 rounded text-zinc-700">
@@ -740,76 +740,67 @@ export function AdminDashboard() {
               {integrations && (
                 <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-3 text-xs">
                   <h3 className="font-display text-base font-bold text-zinc-900">
-                    Modular Integration &amp; Credential Readiness
+                    Store Services &amp; Payment Status
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     <div className="border border-zinc-200 rounded-lg p-3">
-                      <p className="font-bold text-zinc-900">Paystack + Webhook</p>
+                      <p className="font-bold text-zinc-900">Paystack Checkout</p>
                       <p className="text-zinc-600 mt-1">
                         {integrations.paystack.configured
-                          ? 'Gateway Configured'
-                          : `Awaiting: ${integrations.paystack.missingEnvVars.join(', ')}`}
-                      </p>
-                      <p className="text-[11px] font-mono text-zinc-500 mt-1">
-                        Endpoint: /api/webhooks/paystack
+                          ? 'Active & Ready'
+                          : 'Awaiting configuration'}
                       </p>
                     </div>
                     <div className="border border-zinc-200 rounded-lg p-3">
-                      <p className="font-bold text-zinc-900">Flutterwave + Webhook</p>
+                      <p className="font-bold text-zinc-900">Flutterwave Checkout</p>
                       <p className="text-zinc-600 mt-1">
                         {integrations.flutterwave.configured
-                          ? 'Gateway Configured'
-                          : `Awaiting: ${integrations.flutterwave.missingEnvVars.join(', ')}`}
-                      </p>
-                      <p className="text-[11px] font-mono text-zinc-500 mt-1">
-                        Endpoint: /api/webhooks/flutterwave
+                          ? 'Active & Ready'
+                          : 'Awaiting configuration'}
                       </p>
                     </div>
                     <div className="border border-zinc-200 rounded-lg p-3">
-                      <p className="font-bold text-zinc-900">Email (Optional)</p>
+                      <p className="font-bold text-zinc-900">Email Notifications (Optional)</p>
                       <p className="text-zinc-600 mt-1">
                         {integrations.email.configured
-                          ? 'Resend Active'
-                          : `Disabled (Optional: ${integrations.email.missingEnvVars.join(', ')})`}
+                          ? 'Transactional Email Active'
+                          : 'Disabled (Optional)'}
                       </p>
                     </div>
                     {integrations.currency && (
                       <div className="border border-zinc-200 rounded-lg p-3">
-                        <p className="font-bold text-zinc-900">Currency Rates (Optional API)</p>
+                        <p className="font-bold text-zinc-900">Currency Exchange Rates</p>
                         <p className="text-zinc-600 mt-1">
                           {integrations.currency.externalApiConfigured
-                            ? 'External FX Feed Active'
-                            : 'Manual Admin Rates Active'}
+                            ? 'Automatic Rate Feed Active'
+                            : 'Manual Store Rates Active'}
                         </p>
                       </div>
                     )}
                     {integrations.storage && (
                       <div className="border border-zinc-200 rounded-lg p-3 sm:col-span-2">
-                        <p className="font-bold text-zinc-900">Digital Storage Adapter</p>
+                        <p className="font-bold text-zinc-900">Digital File Delivery</p>
                         <p className="text-zinc-600 mt-1">
-                          {integrations.storage.providerLabel}
+                          {integrations.storage.configured
+                            ? 'External Cloud Storage Active'
+                            : 'Standard Store Delivery Active'}
                         </p>
-                        {!integrations.storage.configured || integrations.storage.mode === 'local_dev' ? (
-                          <p className="text-[11px] font-mono text-zinc-500 mt-1">
-                            Production S3/R2 optional vars: {integrations.storage.missingEnvVars.join(', ')}
-                          </p>
-                        ) : null}
                       </div>
                     )}
                   </div>
                 </div>
               )}
 
-              {/* Development / Sandbox Email Template Previewer */}
+              {/* Preview Email Notification Templates */}
               {isDemoMode && (
                 <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-3 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h3 className="font-display text-base font-bold text-zinc-900">
-                        Notification Template Preview (No External Email Sent)
+                        Notification Template Preview
                       </h3>
                       <p className="text-zinc-500 mt-0.5">
-                        Inspect rendered transactional templates safely without Resend credentials.
+                        Inspect rendered order and payment notifications in preview mode without sending external emails.
                       </p>
                     </div>
                     <button
@@ -828,8 +819,8 @@ export function AdminDashboard() {
                         setEmailPreviewHtml({
                           subject: 'Payment Confirmed for Order ord-demo-1042',
                           htmlBody:
-                            'Payment reference PSK_DEMO_994210 verified. Digital licenses unlocked in Download Library. (Preview only — external email delivery disabled)',
-                          status: 'blocked_demo',
+                            'Payment verified. Digital licenses are unlocked in your Download Library.',
+                          status: 'preview_only',
                         });
                       }}
                       className="px-3.5 py-2 border border-zinc-200 rounded-lg font-semibold hover:bg-stone-100 cursor-pointer"

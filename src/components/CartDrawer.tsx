@@ -144,7 +144,7 @@ export function CartDrawer() {
               </span>
             </div>
             <p className="text-xs text-zinc-500">
-              Multi-vendor order splitting &amp; Paystack / Flutterwave checkout calculated on next step.
+              Shipping and payment options are calculated at checkout.
             </p>
             <button
               type="button"

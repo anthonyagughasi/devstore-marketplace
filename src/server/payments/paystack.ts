@@ -41,42 +41,93 @@ export class PaystackAdapter implements PaymentProviderAdapter {
         provider: 'paystack',
         reference: input.reference,
         missingEnvVars: this.getMissingEnvVars(),
-        message: 'Paystack credentials are not yet configured in environment secrets.',
+        message: 'Paystack checkout is not currently configured.',
       };
     }
 
-    const res = await fetch('https://api.paystack.co/transaction/initialize', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        email: input.email,
-        amount: input.amountMinor,
-        currency: input.currency,
-        reference: input.reference,
-        callback_url: input.callbackUrl,
-        metadata: {
-          ...input.metadata,
-          provider: 'paystack',
-          splitSubaccounts: input.splitSubaccounts,
-        },
-      }),
-    });
+    if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+      throw new Error('Checkout amount must be greater than zero.');
+    }
+    if (!input.email || !input.email.includes('@')) {
+      throw new Error('A valid customer email address is required for Paystack checkout.');
+    }
 
-    const data = (await res.json()) as {
+    let res: Response;
+    try {
+      res = await fetch('https://api.paystack.co/transaction/initialize', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: input.email.trim(),
+          amount: input.amountMinor,
+          currency: input.currency,
+          reference: input.reference,
+          callback_url: input.callbackUrl,
+          metadata: {
+            ...input.metadata,
+            provider: 'paystack',
+            expectedAmountMinor: input.amountMinor,
+            expectedCurrency: input.currency,
+            ...(input.splitSubaccounts?.length ? { splitSubaccounts: input.splitSubaccounts } : {}),
+          },
+        }),
+      });
+    } catch (err) {
+      console.error('[DevStore Paystack Initialize Network Error]', {
+        reference: input.reference,
+        currency: input.currency,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw new Error('Unable to reach Paystack right now. Please try again in a moment.');
+    }
+
+    const rawText = await res.text();
+    let data: {
       status?: boolean;
       message?: string;
       data?: { authorization_url?: string; reference?: string };
-    };
+    } = {};
+
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText) as typeof data;
+      } catch {
+        console.error('[DevStore Paystack Initialize Non-JSON Response]', {
+          httpStatus: res.status,
+          reference: input.reference,
+          bodySnippet: rawText.slice(0, 300),
+        });
+        throw new Error('Paystack returned an unexpected response. Please try again shortly.');
+      }
+    }
 
     if (!res.ok || !data.status || !data.data?.authorization_url) {
-      throw new Error(data.message || 'Paystack initialization failed.');
+      console.error('[DevStore Paystack Initialize Rejected]', {
+        httpStatus: res.status,
+        reference: input.reference,
+        currency: input.currency,
+        amountMinor: input.amountMinor,
+        gatewayMessage: data.message,
+      });
+      if (res.status === 401 || res.status === 403) {
+        throw new Error('Paystack checkout is temporarily unavailable. Please try another payment method.');
+      }
+      throw new Error(
+        data.message && !data.message.toLowerCase().includes('key')
+          ? data.message
+          : 'Unable to start Paystack checkout. Please try again or switch payment methods.'
+      );
     }
 
     if (!isValidCheckoutRedirectUrl('paystack', data.data.authorization_url)) {
-      throw new Error('Paystack returned an invalid checkout redirect URL.');
+      console.error('[DevStore Paystack Invalid Redirect URL]', {
+        reference: input.reference,
+        authorizationUrl: data.data.authorization_url,
+      });
+      throw new Error('Paystack returned an invalid checkout URL. Please try again.');
     }
 
     return {
@@ -102,20 +153,30 @@ export class PaystackAdapter implements PaymentProviderAdapter {
         status: 'pending',
         reference,
         missingEnvVars: this.getMissingEnvVars(),
-        message: 'Paystack secret key is missing.',
+        message: 'Paystack verification is not currently configured.',
       };
     }
 
-    const res = await fetch(
-      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
-      {
-        headers: {
-          Authorization: `Bearer ${secretKey}`,
-        },
-      }
-    );
+    let res: Response;
+    try {
+      res = await fetch(
+        `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${secretKey}`,
+          },
+        }
+      );
+    } catch (err) {
+      console.error('[DevStore Paystack Verify Network Error]', {
+        reference,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw new Error('Unable to reach Paystack to confirm your payment. Please retry.');
+    }
 
-    const payload = (await res.json()) as {
+    const rawText = await res.text();
+    let payload: {
       status?: boolean;
       message?: string;
       data?: {
@@ -124,10 +185,40 @@ export class PaystackAdapter implements PaymentProviderAdapter {
         amount?: number;
         currency?: CurrencyCode;
         reference?: string;
+        metadata?: {
+          orderId?: string;
+          expectedAmountMinor?: number;
+          expectedCurrency?: CurrencyCode;
+        };
       };
-    };
+    } = {};
+
+    if (rawText) {
+      try {
+        payload = JSON.parse(rawText) as typeof payload;
+      } catch {
+        console.error('[DevStore Paystack Verify Non-JSON Response]', {
+          httpStatus: res.status,
+          reference,
+          bodySnippet: rawText.slice(0, 300),
+        });
+        return {
+          configured: true,
+          verified: false,
+          provider: 'paystack',
+          status: 'pending',
+          reference,
+          message: 'Payment confirmation is pending. Please refresh status in a moment.',
+        };
+      }
+    }
 
     if (!res.ok || !payload.status || !payload.data) {
+      console.error('[DevStore Paystack Verify Rejected]', {
+        httpStatus: res.status,
+        reference,
+        gatewayMessage: payload.message,
+      });
       return {
         configured: true,
         verified: false,
@@ -154,8 +245,17 @@ export class PaystackAdapter implements PaymentProviderAdapter {
       provider: 'paystack',
       status: mappedStatus,
       reference: payload.data.reference || reference,
+      orderId:
+        typeof payload.data.metadata?.orderId === 'string'
+          ? payload.data.metadata.orderId
+          : undefined,
       amountMinor: payload.data.amount,
       currency: payload.data.currency,
+      expectedAmountMinor:
+        typeof payload.data.metadata?.expectedAmountMinor === 'number'
+          ? payload.data.metadata.expectedAmountMinor
+          : undefined,
+      expectedCurrency: payload.data.metadata?.expectedCurrency,
       providerTransactionId: payload.data.id ? String(payload.data.id) : undefined,
       message: payload.message,
     };
@@ -225,6 +325,7 @@ export class PaystackPaymentService {
     userId: string;
     orderId: string;
     email: string;
+    customerName?: string;
     amountMinor: number;
     currency: CurrencyCode;
     callbackUrl: string;
@@ -242,6 +343,7 @@ export class PaystackPaymentService {
     const result = await this.adapter.initializePayment({
       reference,
       email: params.email,
+      customerName: params.customerName,
       amountMinor: params.amountMinor,
       currency: params.currency,
       callbackUrl: params.callbackUrl,

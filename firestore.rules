@@ -400,13 +400,13 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if isAdmin();
-      allow create: if isValidId(userId) && isVerified() && isOwner(userId) &&
+      allow create: if isValidId(userId) && isSignedIn() && isOwner(userId) &&
         isValidUserAccount(incoming(), userId) &&
         incoming().role == 'customer' &&
         incoming().accountStatus == 'active' &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
-      allow update: if isValidId(userId) && isVerified() && isValidUserAccount(incoming(), userId) &&
+      allow update: if isValidId(userId) && isSignedIn() && isValidUserAccount(incoming(), userId) &&
         incoming().uid == existing().uid &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time && (
@@ -423,10 +423,10 @@ service cloud.firestore {
       match /private/{docId} {
         allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
         allow list: if isOwner(userId) || isAdmin();
-        allow create: if isValidId(userId) && isValidId(docId) && isVerified() && isOwner(userId) &&
+        allow create: if isValidId(userId) && isValidId(docId) && isSignedIn() && isOwner(userId) &&
           isValidUserPrivateInfo(incoming(), userId) &&
           incoming().updatedAt == request.time;
-        allow update: if isValidId(userId) && isValidId(docId) && isVerified() &&
+        allow update: if isValidId(userId) && isValidId(docId) && isSignedIn() &&
           isValidUserPrivateInfo(incoming(), userId) &&
           incoming().ownerId == existing().ownerId &&
           incoming().updatedAt == request.time &&
@@ -437,11 +437,11 @@ service cloud.firestore {
       match /addresses/{addressId} {
         allow get: if isValidId(userId) && isValidId(addressId) && (isOwner(userId) || isAdmin());
         allow list: if isOwner(userId) || isAdmin();
-        allow create: if isValidId(userId) && isValidId(addressId) && isVerified() && isOwner(userId) &&
+        allow create: if isValidId(userId) && isValidId(addressId) && isSignedIn() && isOwner(userId) &&
           isValidShippingAddress(incoming(), userId) &&
           incoming().createdAt == request.time &&
           incoming().updatedAt == request.time;
-        allow update: if isValidId(userId) && isValidId(addressId) && isVerified() && isOwner(userId) &&
+        allow update: if isValidId(userId) && isValidId(addressId) && isSignedIn() && isOwner(userId) &&
           isValidShippingAddress(incoming(), userId) &&
           incoming().ownerId == existing().ownerId &&
           incoming().createdAt == existing().createdAt &&
@@ -453,7 +453,7 @@ service cloud.firestore {
       match /wishlist/{productId} {
         allow get: if isValidId(userId) && isValidId(productId) && isOwner(userId);
         allow list: if isOwner(userId);
-        allow create: if isValidId(userId) && isValidId(productId) && isVerified() && isOwner(userId) &&
+        allow create: if isValidId(userId) && isValidId(productId) && isSignedIn() && isOwner(userId) &&
           isValidWishlistItem(incoming(), userId, productId) &&
           incoming().addedAt == request.time &&
           exists(/databases/$(database)/documents/products/$(productId));
@@ -464,11 +464,11 @@ service cloud.firestore {
       match /notifications/{notificationId} {
         allow get: if isValidId(userId) && isValidId(notificationId) && (isOwner(userId) || isAdmin());
         allow list: if isOwner(userId) || isAdmin();
-        allow create: if isValidId(userId) && isValidId(notificationId) && isVerified() &&
+        allow create: if isValidId(userId) && isValidId(notificationId) && isSignedIn() &&
           (isAdmin() || isOwner(userId)) &&
           isValidNotification(incoming(), userId) &&
           incoming().createdAt == request.time;
-        allow update: if isValidId(userId) && isValidId(notificationId) && isVerified() && isOwner(userId) &&
+        allow update: if isValidId(userId) && isValidId(notificationId) && isSignedIn() && isOwner(userId) &&
           isValidNotification(incoming(), userId) &&
           incoming().ownerId == existing().ownerId &&
           incoming().createdAt == existing().createdAt &&
@@ -479,7 +479,7 @@ service cloud.firestore {
       match /followedSellers/{storeId} {
         allow get: if isValidId(userId) && isValidId(storeId) && isOwner(userId);
         allow list: if isOwner(userId);
-        allow create: if isValidId(userId) && isValidId(storeId) && isVerified() && isOwner(userId) &&
+        allow create: if isValidId(userId) && isValidId(storeId) && isSignedIn() && isOwner(userId) &&
           isValidFollowedSeller(incoming(), userId, storeId) &&
           incoming().followedAt == request.time &&
           exists(/databases/$(database)/documents/stores/$(storeId));
@@ -521,7 +521,7 @@ service cloud.firestore {
     match /sellerApplications/{applicationId} {
       allow get: if isValidId(applicationId) && (isOwner(existing().applicantId) || isAdmin());
       allow list: if isAdmin() || (isSignedIn() && existing().applicantId == request.auth.uid);
-      allow create: if isValidId(applicationId) && isVerified() &&
+      allow create: if isValidId(applicationId) && isSignedIn() &&
         isValidSellerApplication(incoming()) &&
         incoming().applicantId == request.auth.uid &&
         incoming().status == 'pending' &&
@@ -588,14 +588,14 @@ service cloud.firestore {
     match /orders/{orderId} {
       allow get: if isValidId(orderId) && (isOwner(existing().customerId) || isAdmin());
       allow list: if isAdmin() || (isSignedIn() && existing().customerId == request.auth.uid);
-      allow create: if isValidId(orderId) && isVerified() &&
+      allow create: if isValidId(orderId) && isSignedIn() &&
         isValidOrder(incoming()) &&
         incoming().customerId == request.auth.uid &&
         incoming().paymentStatus == 'pending' &&
         incoming().status == 'pending' &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
-      allow update: if isValidId(orderId) && isVerified() && isValidOrder(incoming()) &&
+      allow update: if isValidId(orderId) && isSignedIn() && isValidOrder(incoming()) &&
         incoming().customerId == existing().customerId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
@@ -617,14 +617,14 @@ service cloud.firestore {
     match /sellerOrders/{sellerOrderId} {
       allow get: if isValidId(sellerOrderId) && (isOwner(existing().customerId) || isOwner(existing().sellerId) || isAdmin());
       allow list: if isAdmin() || (isSignedIn() && (existing().customerId == request.auth.uid || existing().sellerId == request.auth.uid));
-      allow create: if isValidId(sellerOrderId) && isVerified() &&
+      allow create: if isValidId(sellerOrderId) && isSignedIn() &&
         isValidSellerOrder(incoming()) &&
         incoming().customerId == request.auth.uid &&
         incoming().fulfilmentStatus == 'pending' &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
         existsAfter(/databases/$(database)/documents/orders/$(incoming().parentOrderId));
-      allow update: if isValidId(sellerOrderId) && isVerified() && isValidSellerOrder(incoming()) &&
+      allow update: if isValidId(sellerOrderId) && isSignedIn() && isValidSellerOrder(incoming()) &&
         incoming().parentOrderId == existing().parentOrderId &&
         incoming().customerId == existing().customerId &&
         incoming().sellerId == existing().sellerId &&
@@ -658,7 +658,7 @@ service cloud.firestore {
       allow create: if isValidId(entitlementId) && isAdmin() &&
         isValidDigitalEntitlement(incoming()) &&
         incoming().createdAt == request.time;
-      allow update: if isValidId(entitlementId) && isVerified() && isValidDigitalEntitlement(incoming()) &&
+      allow update: if isValidId(entitlementId) && isSignedIn() && isValidDigitalEntitlement(incoming()) &&
         incoming().customerId == existing().customerId &&
         incoming().orderId == existing().orderId &&
         incoming().productId == existing().productId &&
@@ -678,7 +678,7 @@ service cloud.firestore {
     match /transactions/{transactionId} {
       allow get: if isValidId(transactionId) && (isOwner(existing().userId) || isOwner(existing().sellerId) || isAdmin());
       allow list: if isAdmin() || (isSignedIn() && (existing().userId == request.auth.uid || existing().sellerId == request.auth.uid));
-      allow create: if isValidId(transactionId) && isVerified() &&
+      allow create: if isValidId(transactionId) && isSignedIn() &&
         isValidLedgerTransaction(incoming()) &&
         (isAdmin() || incoming().userId == request.auth.uid) &&
         incoming().createdAt == request.time;
@@ -713,33 +713,33 @@ service cloud.firestore {
     match /reviews/{reviewId} {
       allow get: if isValidId(reviewId);
       allow list: if true;
-      allow create: if isValidId(reviewId) && isVerified() &&
+      allow create: if isValidId(reviewId) && isSignedIn() &&
         isValidReview(incoming()) &&
         incoming().authorId == request.auth.uid &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
         exists(/databases/$(database)/documents/products/$(incoming().productId));
-      allow update: if isValidId(reviewId) && isVerified() && isOwner(existing().authorId) &&
+      allow update: if isValidId(reviewId) && isSignedIn() && isOwner(existing().authorId) &&
         isValidReview(incoming()) &&
         incoming().authorId == existing().authorId &&
         incoming().productId == existing().productId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'title', 'comment', 'updatedAt']);
-      allow delete: if isValidId(reviewId) && isVerified() && (isOwner(existing().authorId) || isAdmin());
+      allow delete: if isValidId(reviewId) && isSignedIn() && (isOwner(existing().authorId) || isAdmin());
     }
 
     // 13. Product Questions & Answers
     match /productQuestions/{questionId} {
       allow get: if isValidId(questionId);
       allow list: if true;
-      allow create: if isValidId(questionId) && isVerified() &&
+      allow create: if isValidId(questionId) && isSignedIn() &&
         isValidQuestion(incoming()) &&
         incoming().authorId == request.auth.uid &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
         exists(/databases/$(database)/documents/products/$(incoming().productId));
-      allow update: if isValidId(questionId) && isVerified() &&
+      allow update: if isValidId(questionId) && isSignedIn() &&
         isValidQuestion(incoming()) &&
         incoming().authorId == existing().authorId &&
         incoming().productId == existing().productId &&
@@ -752,7 +752,7 @@ service cloud.firestore {
             incoming().diff(existing()).affectedKeys().hasOnly(['answer', 'updatedAt'])
           )
         );
-      allow delete: if isValidId(questionId) && isVerified() && (isOwner(existing().authorId) || isAdmin());
+      allow delete: if isValidId(questionId) && isSignedIn() && (isOwner(existing().authorId) || isAdmin());
     }
 
     // 14. Coupons
@@ -773,7 +773,7 @@ service cloud.firestore {
     match /disputes/{disputeId} {
       allow get: if isValidId(disputeId) && (isOwner(existing().customerId) || isOwner(existing().sellerId) || isAdmin());
       allow list: if isAdmin() || (isSignedIn() && (existing().customerId == request.auth.uid || existing().sellerId == request.auth.uid));
-      allow create: if isValidId(disputeId) && isVerified() &&
+      allow create: if isValidId(disputeId) && isSignedIn() &&
         isValidDispute(incoming()) &&
         incoming().customerId == request.auth.uid &&
         incoming().status == 'open' &&

@@ -116,18 +116,25 @@ export class PaymentTransactionStore {
     let status: PaymentTransactionStatus = verifyResult.status;
     let message = verifyResult.message;
 
-    if (existing && verified && status === 'paid') {
+    const expectedAmount =
+      existing?.amountMinor ?? verifyResult.expectedAmountMinor;
+    const expectedCurrency =
+      existing?.currency ?? verifyResult.expectedCurrency;
+
+    if (verified && status === 'paid' && (typeof expectedAmount === 'number' || expectedCurrency)) {
       const amountMatches =
+        typeof expectedAmount !== 'number' ||
         typeof verifyResult.amountMinor !== 'number' ||
-        verifyResult.amountMinor === existing.amountMinor;
+        verifyResult.amountMinor === expectedAmount;
       const currencyMatches =
+        !expectedCurrency ||
         !verifyResult.currency ||
-        verifyResult.currency.toUpperCase() === existing.currency.toUpperCase();
+        verifyResult.currency.toUpperCase() === expectedCurrency.toUpperCase();
 
       if (!amountMatches || !currencyMatches) {
         verified = false;
         status = 'failed';
-        message = `Payment verification rejected due to amount/currency mismatch (expected ${existing.amountMinor} ${existing.currency}, got ${verifyResult.amountMinor ?? 'unknown'} ${verifyResult.currency ?? 'unknown'}).`;
+        message = `Payment verification rejected due to amount/currency mismatch (expected ${expectedAmount ?? 'unknown'} ${expectedCurrency ?? 'unknown'}, got ${verifyResult.amountMinor ?? 'unknown'} ${verifyResult.currency ?? 'unknown'}).`;
       }
     }
 
@@ -163,7 +170,7 @@ export class PaymentTransactionStore {
       verified,
       status,
       orderStatus,
-      orderId: existing?.orderId,
+      orderId: existing?.orderId || verifyResult.orderId,
       message,
     };
   }

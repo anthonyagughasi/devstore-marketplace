@@ -46,7 +46,7 @@ export function CustomerPortal() {
             Customer Orders &amp; Digital Download Library
           </h1>
           <p className="text-sm text-zinc-600 max-w-lg mx-auto">
-            Sign in with your Google account to view live orders and licenses, or enter Demo Mode (Customer Demo) instantly without registering.
+            Sign in or create an account to view your orders and digital library, or explore Customer Demo with sample data.
           </p>
           <div className="flex flex-wrap justify-center gap-3 pt-2">
             <button
@@ -54,7 +54,7 @@ export function CustomerPortal() {
               onClick={() => setAuthModalOpen(true)}
               className="px-5 py-2.5 bg-zinc-900 text-white text-xs font-semibold rounded-lg cursor-pointer"
             >
-              Sign In with Google
+              Sign In / Create Account
             </button>
             <button
               type="button"
@@ -259,17 +259,17 @@ export function CustomerPortal() {
           <div className="px-6 py-4 border-b border-zinc-200 flex items-center justify-between">
             <div>
               <h2 className="font-display text-base font-bold text-zinc-900">
-                Licensed Digital Vault
+                My Digital Library
               </h2>
               <p className="text-xs text-zinc-500">
-                Files are stored privately and delivered via single-session HMAC-signed temporary URLs.
+                Download your purchased digital products, licenses, and updates anytime.
               </p>
             </div>
           </div>
 
           {entitlements.length === 0 ? (
             <div className="p-10 text-center text-sm text-zinc-500">
-              No digital purchases yet. Purchase a digital template or e-book to unlock encrypted downloads.
+              No digital purchases yet. Purchase a digital template or resource to unlock instant downloads.
             </div>
           ) : (
             <div className="divide-y divide-zinc-100">

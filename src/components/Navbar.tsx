@@ -92,7 +92,7 @@ export function Navbar() {
               </span>
               <span className="text-zinc-400 hidden sm:inline">/</span>
               <span className="text-zinc-700 truncate hidden md:inline">
-                Isolated sandbox — all orders, payments, and payouts are simulated.
+                Preview mode — explore shopping, selling, and order workflows with sample data.
               </span>
             </div>
 
@@ -258,7 +258,7 @@ export function Navbar() {
               onClick={() => setAuthModalOpen(true)}
               className="hidden sm:inline-flex items-center px-4 py-2 text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 rounded-lg whitespace-nowrap shrink-0 cursor-pointer ui-transition"
             >
-              Sign In / Explore Demo
+              Sign In / Register
             </button>
           )}
 
@@ -313,7 +313,7 @@ export function Navbar() {
             }}
             className="w-full px-4 py-2.5 text-sm font-semibold text-white bg-zinc-900 rounded-lg cursor-pointer"
           >
-            {isDemoMode ? 'Demo Mode / Account' : 'Sign In / Explore Demo'}
+            {isDemoMode ? 'Demo Mode / Account' : 'Sign In / Register'}
           </button>
         </div>
       )}

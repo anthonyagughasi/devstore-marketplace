@@ -41,51 +41,109 @@ export class FlutterwaveAdapter implements PaymentProviderAdapter {
         provider: 'flutterwave',
         reference: input.reference,
         missingEnvVars: this.getMissingEnvVars(),
-        message: 'Flutterwave credentials are not yet configured in environment secrets.',
+        message: 'Flutterwave checkout is not currently configured.',
       };
+    }
+
+    if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+      throw new Error('Checkout amount must be greater than zero.');
+    }
+    if (!input.email || !input.email.includes('@')) {
+      throw new Error('A valid customer email address is required for Flutterwave checkout.');
     }
 
     // Flutterwave expects major decimal units in `amount`
     const amountMajor = Number((input.amountMinor / 100).toFixed(2));
 
-    const res = await fetch('https://api.flutterwave.com/v3/payments', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        'Content-Type': 'application/json',
+    const payloadBody: Record<string, unknown> = {
+      tx_ref: input.reference,
+      amount: amountMajor,
+      currency: input.currency,
+      redirect_url: input.callbackUrl,
+      customer: {
+        email: input.email.trim(),
+        name: input.customerName?.trim() || 'DevStore Customer',
       },
-      body: JSON.stringify({
-        tx_ref: input.reference,
-        amount: amountMajor,
-        currency: input.currency,
-        redirect_url: input.callbackUrl,
-        customer: {
-          email: input.email,
-        },
-        customizations: {
-          title: 'DevStore Marketplace',
-          description: 'International Multi-Vendor Order Checkout',
-        },
-        meta: {
-          ...input.metadata,
-          provider: 'flutterwave',
-        },
-        subaccounts: input.splitSubaccounts?.map((s) => ({ id: s.subaccountCode })),
-      }),
-    });
+      customizations: {
+        title: 'DevStore Marketplace',
+        description: 'Order Checkout',
+      },
+      meta: {
+        ...input.metadata,
+        provider: 'flutterwave',
+        expectedAmountMinor: input.amountMinor,
+        expectedCurrency: input.currency,
+      },
+    };
 
-    const data = (await res.json()) as {
+    if (input.splitSubaccounts?.length) {
+      payloadBody.subaccounts = input.splitSubaccounts.map((s) => ({ id: s.subaccountCode }));
+    }
+
+    let res: Response;
+    try {
+      res = await fetch('https://api.flutterwave.com/v3/payments', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payloadBody),
+      });
+    } catch (err) {
+      console.error('[DevStore Flutterwave Initialize Network Error]', {
+        reference: input.reference,
+        currency: input.currency,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw new Error('Unable to reach Flutterwave right now. Please try again in a moment.');
+    }
+
+    const rawText = await res.text();
+    let data: {
       status?: string;
       message?: string;
       data?: { link?: string };
-    };
+    } = {};
+
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText) as typeof data;
+      } catch {
+        console.error('[DevStore Flutterwave Initialize Non-JSON Response]', {
+          httpStatus: res.status,
+          reference: input.reference,
+          bodySnippet: rawText.slice(0, 300),
+        });
+        throw new Error('Flutterwave returned an unexpected response. Please try again shortly.');
+      }
+    }
 
     if (!res.ok || data.status !== 'success' || !data.data?.link) {
-      throw new Error(data.message || 'Flutterwave initialization failed.');
+      console.error('[DevStore Flutterwave Initialize Rejected]', {
+        httpStatus: res.status,
+        reference: input.reference,
+        currency: input.currency,
+        amountMajor,
+        gatewayStatus: data.status,
+        gatewayMessage: data.message,
+      });
+      if (res.status === 401 || res.status === 403) {
+        throw new Error('Flutterwave checkout is temporarily unavailable. Please try another payment method.');
+      }
+      throw new Error(
+        data.message && !data.message.toLowerCase().includes('key')
+          ? data.message
+          : 'Unable to start Flutterwave checkout. Please try again or switch payment methods.'
+      );
     }
 
     if (!isValidCheckoutRedirectUrl('flutterwave', data.data.link)) {
-      throw new Error('Flutterwave returned an invalid hosted checkout URL.');
+      console.error('[DevStore Flutterwave Invalid Redirect URL]', {
+        reference: input.reference,
+        link: data.data.link,
+      });
+      throw new Error('Flutterwave returned an invalid checkout URL. Please try again.');
     }
 
     return {
@@ -111,7 +169,7 @@ export class FlutterwaveAdapter implements PaymentProviderAdapter {
         status: 'pending',
         reference,
         missingEnvVars: this.getMissingEnvVars(),
-        message: 'Flutterwave secret key is missing.',
+        message: 'Flutterwave verification is not currently configured.',
       };
     }
 
@@ -119,13 +177,24 @@ export class FlutterwaveAdapter implements PaymentProviderAdapter {
       ? `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(transactionId)}/verify`
       : `https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`;
 
-    const res = await fetch(endpoint, {
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-      },
-    });
+    let res: Response;
+    try {
+      res = await fetch(endpoint, {
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+        },
+      });
+    } catch (err) {
+      console.error('[DevStore Flutterwave Verify Network Error]', {
+        reference,
+        transactionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw new Error('Unable to reach Flutterwave to confirm your payment. Please retry.');
+    }
 
-    const payload = (await res.json()) as {
+    const rawText = await res.text();
+    let payload: {
       status?: string;
       message?: string;
       data?: {
@@ -134,10 +203,41 @@ export class FlutterwaveAdapter implements PaymentProviderAdapter {
         amount?: number;
         currency?: CurrencyCode;
         status?: string;
+        meta?: {
+          orderId?: string;
+          expectedAmountMinor?: number;
+          expectedCurrency?: CurrencyCode;
+        };
       };
-    };
+    } = {};
+
+    if (rawText) {
+      try {
+        payload = JSON.parse(rawText) as typeof payload;
+      } catch {
+        console.error('[DevStore Flutterwave Verify Non-JSON Response]', {
+          httpStatus: res.status,
+          reference,
+          bodySnippet: rawText.slice(0, 300),
+        });
+        return {
+          configured: true,
+          verified: false,
+          provider: 'flutterwave',
+          status: 'pending',
+          reference,
+          message: 'Payment confirmation is pending. Please refresh status in a moment.',
+        };
+      }
+    }
 
     if (!res.ok || payload.status !== 'success' || !payload.data) {
+      console.error('[DevStore Flutterwave Verify Rejected]', {
+        httpStatus: res.status,
+        reference,
+        transactionId,
+        gatewayMessage: payload.message,
+      });
       return {
         configured: true,
         verified: false,
@@ -156,7 +256,7 @@ export class FlutterwaveAdapter implements PaymentProviderAdapter {
         provider: 'flutterwave',
         status: 'failed',
         reference,
-        message: 'Flutterwave transaction reference mismatch during server verification.',
+        message: 'Transaction reference mismatch during verification.',
       };
     }
 
@@ -176,8 +276,17 @@ export class FlutterwaveAdapter implements PaymentProviderAdapter {
       provider: 'flutterwave',
       status: mappedStatus,
       reference: payload.data.tx_ref || reference,
+      orderId:
+        typeof payload.data.meta?.orderId === 'string'
+          ? payload.data.meta.orderId
+          : undefined,
       amountMinor: Math.round((payload.data.amount || 0) * 100),
       currency: payload.data.currency,
+      expectedAmountMinor:
+        typeof payload.data.meta?.expectedAmountMinor === 'number'
+          ? payload.data.meta.expectedAmountMinor
+          : undefined,
+      expectedCurrency: payload.data.meta?.expectedCurrency,
       providerTransactionId: payload.data.id ? String(payload.data.id) : undefined,
       message: payload.message,
     };
@@ -260,6 +369,7 @@ export class FlutterwavePaymentService {
     userId: string;
     orderId: string;
     email: string;
+    customerName?: string;
     amountMinor: number;
     currency: CurrencyCode;
     callbackUrl: string;
@@ -277,6 +387,7 @@ export class FlutterwavePaymentService {
     const result = await this.adapter.initializePayment({
       reference,
       email: params.email,
+      customerName: params.customerName,
       amountMinor: params.amountMinor,
       currency: params.currency,
       callbackUrl: params.callbackUrl,

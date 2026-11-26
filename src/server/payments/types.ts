@@ -12,6 +12,7 @@ import { calculateCommissionSplit, getLicenseUnitPriceMinor } from '../../shared
 export interface InitializePaymentRequest {
   reference: string;
   email: string;
+  customerName?: string;
   amountMinor: number;
   currency: CurrencyCode;
   callbackUrl: string;
@@ -40,6 +41,8 @@ export interface VerifyPaymentResponse {
   orderId?: string;
   amountMinor?: number;
   currency?: CurrencyCode;
+  expectedAmountMinor?: number;
+  expectedCurrency?: CurrencyCode;
   providerTransactionId?: string;
   missingEnvVars?: string[];
   message?: string;

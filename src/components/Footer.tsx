@@ -29,7 +29,7 @@ export function Footer() {
         </div>
 
         <div className="md:col-span-2 space-y-2 text-xs">
-          <p className="font-semibold text-zinc-900">Demo Mode</p>
+          <p className="font-semibold text-zinc-900">Store Preview</p>
           <button type="button" disabled={demoLoading} onClick={openDemoSelector} className="block text-zinc-600 hover:text-zinc-900 cursor-pointer disabled:opacity-50">
             Explore Demo
           </button>
@@ -75,7 +75,17 @@ export function Footer() {
 
       <div className="border-t border-zinc-100 py-4 px-4 sm:px-6 text-xs text-zinc-500 max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
         <span>© {new Date().getFullYear()} DevStore International Marketplace.</span>
-        <span className="font-mono">Multi-Currency · Paystack · Flutterwave · Private Digital Vault</span>
+        <span>
+          Developed by{' '}
+          <a
+            href="https://devbytoni.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-zinc-800 hover:text-zinc-900 underline underline-offset-4"
+          >
+            DevByToni
+          </a>
+        </span>
       </div>
     </footer>
   );

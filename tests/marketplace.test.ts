@@ -1024,3 +1024,333 @@ describe('DevStore Demo Mode RBAC, Flows & Sandbox Isolation', () => {
   });
 });
 
+describe('DevStore Payment Initialization Hardening & Serverless Continuity', () => {
+  it('handles non-JSON and 401 upstream gateway errors safely without exposing secrets', async () => {
+    paymentTransactionStore.resetForTests();
+    process.env.PAYSTACK_SECRET_KEY = 'sk_test_secret_must_never_leak';
+    process.env.FLUTTERWAVE_SECRET_KEY = 'FLWSECK_TEST_must_never_leak';
+
+    const adminAuthInstance = await getAdminAuth();
+    const verifySpy = vi.spyOn(adminAuthInstance, 'verifyIdToken').mockResolvedValue({
+      uid: 'live-buyer-hardening',
+      email: 'hardening@devstore.example.com',
+      aud: 'test',
+      auth_time: 0,
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      firebase: { identities: {}, sign_in_provider: 'password' },
+      iat: Math.floor(Date.now() / 1000),
+      iss: 'https://securetoken.google.com/test',
+      sub: 'live-buyer-hardening',
+    } as never);
+
+    const realFetch = globalThis.fetch;
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = typeof input === 'string' ? input : input.toString();
+
+        if (urlStr.startsWith('https://api.paystack.co/transaction/initialize')) {
+          return new Response('<html><body>502 Bad Gateway</body></html>', {
+            status: 502,
+            headers: { 'Content-Type': 'text/html' },
+          });
+        }
+
+        if (urlStr.startsWith('https://api.flutterwave.com/v3/payments')) {
+          return new Response(
+            JSON.stringify({
+              status: 'error',
+              message: 'Invalid authorization key',
+            }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+
+        return realFetch(input, init);
+      });
+
+    try {
+      const pskRes = await realFetch(`${baseUrl}/api/payments/paystack/initialize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer live-firebase-token',
+        },
+        body: JSON.stringify({
+          amountMinor: 15000,
+          currency: 'NGN',
+          orderId: 'ord-psk-html-err',
+          idempotencyKey: 'CHK_PSK_HTML_ERR',
+        }),
+      });
+      expect(pskRes.status).toBe(502);
+      expect(pskRes.headers.get('content-type')).toContain('application/json');
+      const pskErr = (await pskRes.json()) as { error: string };
+      expect(pskErr.error).not.toContain('<html>');
+      expect(pskErr.error).not.toContain('sk_test_secret_must_never_leak');
+
+      const flwRes = await realFetch(`${baseUrl}/api/payments/flutterwave/initialize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer live-firebase-token',
+        },
+        body: JSON.stringify({
+          amountMinor: 25000,
+          currency: 'USD',
+          orderId: 'ord-flw-401-err',
+          idempotencyKey: 'CHK_FLW_401_ERR',
+        }),
+      });
+      expect(flwRes.status).toBe(502);
+      expect(flwRes.headers.get('content-type')).toContain('application/json');
+      const flwErr = (await flwRes.json()) as { error: string };
+      expect(flwErr.error).toBeTruthy();
+      expect(flwErr.error).not.toContain('FLWSECK_TEST_must_never_leak');
+    } finally {
+      verifySpy.mockRestore();
+      fetchSpy.mockRestore();
+      delete process.env.PAYSTACK_SECRET_KEY;
+      delete process.env.FLUTTERWAVE_SECRET_KEY;
+    }
+  });
+
+  it('normalizes APP_URL without scheme, respects Vercel proxy headers, and verifies across cold serverless containers', async () => {
+    paymentTransactionStore.resetForTests();
+    process.env.PAYSTACK_SECRET_KEY = 'sk_test_paystack_cold';
+    process.env.FLUTTERWAVE_SECRET_KEY = 'FLWSECK_TEST_cold';
+    const prevAppUrl = process.env.APP_URL;
+
+    const adminAuthInstance = await getAdminAuth();
+    const verifySpy = vi.spyOn(adminAuthInstance, 'verifyIdToken').mockResolvedValue({
+      uid: 'live-buyer-cold',
+      email: 'cold@devstore.example.com',
+      aud: 'test',
+      auth_time: 0,
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      firebase: { identities: {}, sign_in_provider: 'password' },
+      iat: Math.floor(Date.now() / 1000),
+      iss: 'https://securetoken.google.com/test',
+      sub: 'live-buyer-cold',
+    } as never);
+
+    const realFetch = globalThis.fetch;
+    const capturedPayloads: Array<{ provider: string; body: Record<string, any> }> = [];
+    const metadataByRef = new Map<string, Record<string, any>>();
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = typeof input === 'string' ? input : input.toString();
+
+        if (urlStr.startsWith('https://api.paystack.co/transaction/initialize')) {
+          const parsedBody = init?.body ? JSON.parse(String(init.body)) : {};
+          capturedPayloads.push({ provider: 'paystack', body: parsedBody });
+          metadataByRef.set(parsedBody.reference, parsedBody.metadata || {});
+          return new Response(
+            JSON.stringify({
+              status: true,
+              data: {
+                authorization_url: `https://checkout.paystack.com/${parsedBody.reference}`,
+                reference: parsedBody.reference,
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+
+        if (urlStr.startsWith('https://api.flutterwave.com/v3/payments')) {
+          const parsedBody = init?.body ? JSON.parse(String(init.body)) : {};
+          capturedPayloads.push({ provider: 'flutterwave', body: parsedBody });
+          metadataByRef.set(parsedBody.tx_ref, parsedBody.meta || {});
+          return new Response(
+            JSON.stringify({
+              status: 'success',
+              data: {
+                link: `https://checkout.flutterwave.com/v3/hosted/pay/${parsedBody.tx_ref}`,
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+
+        if (urlStr.startsWith('https://api.paystack.co/transaction/verify/')) {
+          const ref = decodeURIComponent(urlStr.split('/').pop() || '');
+          const meta = metadataByRef.get(ref) || {};
+          // Simulate tampered under-payment when ref contains UNDERPAID
+          const returnedAmount = ref.includes('UNDERPAID') ? 100 : 18500;
+          return new Response(
+            JSON.stringify({
+              status: true,
+              data: {
+                id: 3001,
+                reference: ref,
+                amount: returnedAmount,
+                currency: 'NGN',
+                status: 'success',
+                metadata: meta,
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+
+        if (urlStr.startsWith('https://api.flutterwave.com/v3/transactions/')) {
+          const flwTxId = urlStr.split('/transactions/')[1]?.split('/')[0];
+          const flwInit = capturedPayloads.find((p) => p.provider === 'flutterwave')?.body;
+          const ref = flwInit?.tx_ref || 'FLW_COLD_1';
+          const meta = metadataByRef.get(ref) || {};
+          return new Response(
+            JSON.stringify({
+              status: 'success',
+              data: {
+                id: Number(flwTxId),
+                tx_ref: ref,
+                amount: 240,
+                currency: 'USD',
+                status: 'successful',
+                meta,
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+
+        return realFetch(input, init);
+      });
+
+    try {
+      // 1. Test APP_URL normalization without https:// scheme
+      process.env.APP_URL = 'devstore-app.vercel.app';
+      const pskInitRes = await realFetch(`${baseUrl}/api/payments/paystack/initialize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer live-firebase-token',
+        },
+        body: JSON.stringify({
+          amountMinor: 18500,
+          currency: 'NGN',
+          orderId: 'ord-cold-psk-1',
+          idempotencyKey: 'CHK_COLD_PSK_1',
+          customerName: 'Ada Lovelace',
+        }),
+      });
+      expect(pskInitRes.status).toBe(200);
+      const pskInit = (await pskInitRes.json()) as { reference: string };
+      const pskOutbound = capturedPayloads.find((p) => p.provider === 'paystack')?.body;
+      expect(pskOutbound?.callback_url).toBe('https://devstore-app.vercel.app/?payment_callback=1&provider=paystack');
+
+      // 2. Test Vercel proxy header origin resolution when APP_URL is unset
+      delete process.env.APP_URL;
+      const flwInitRes = await realFetch(`${baseUrl}/api/payments/flutterwave/initialize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer live-firebase-token',
+          'x-forwarded-proto': 'https',
+          'x-forwarded-host': 'preview-devstore.vercel.app',
+        },
+        body: JSON.stringify({
+          amountMinor: 24000,
+          currency: 'USD',
+          orderId: 'ord-cold-flw-1',
+          idempotencyKey: 'CHK_COLD_FLW_1',
+          customerName: 'Ada Lovelace',
+        }),
+      });
+      expect(flwInitRes.status).toBe(200);
+      const flwInit = (await flwInitRes.json()) as { reference: string };
+      const flwOutbound = capturedPayloads.find((p) => p.provider === 'flutterwave')?.body;
+      expect(flwOutbound?.redirect_url).toBe('https://preview-devstore.vercel.app/?payment_callback=1&provider=flutterwave');
+      expect(flwOutbound?.customer?.name).toBe('Ada Lovelace');
+
+      // 3. Evict in-memory transaction store to simulate a cold serverless container during redirect back
+      paymentTransactionStore.resetForTests();
+
+      const pskVerifyCold = await realFetch(`${baseUrl}/api/payments/paystack/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer live-firebase-token',
+        },
+        body: JSON.stringify({ reference: pskInit.reference }),
+      });
+      expect(pskVerifyCold.status).toBe(200);
+      const pskVerifyData = (await pskVerifyCold.json()) as {
+        verified: boolean;
+        status: string;
+        orderId: string;
+        orderStatus: string;
+      };
+      expect(pskVerifyData.verified).toBe(true);
+      expect(pskVerifyData.status).toBe('paid');
+      expect(pskVerifyData.orderId).toBe('ord-cold-psk-1');
+      expect(pskVerifyData.orderStatus).toBe('processing');
+
+      const flwVerifyCold = await realFetch(`${baseUrl}/api/payments/flutterwave/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer live-firebase-token',
+        },
+        body: JSON.stringify({ reference: flwInit.reference, transactionId: '888111' }),
+      });
+      expect(flwVerifyCold.status).toBe(200);
+      const flwVerifyData = (await flwVerifyCold.json()) as {
+        verified: boolean;
+        status: string;
+        orderId: string;
+        orderStatus: string;
+      };
+      expect(flwVerifyData.verified).toBe(true);
+      expect(flwVerifyData.status).toBe('paid');
+      expect(flwVerifyData.orderId).toBe('ord-cold-flw-1');
+      expect(flwVerifyData.orderStatus).toBe('processing');
+
+      // 4. Reject underpaid tampering even on cold container using gateway metadata expectedAmountMinor
+      paymentTransactionStore.resetForTests();
+      const underpaidRes = await realFetch(`${baseUrl}/api/payments/paystack/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer live-firebase-token',
+        },
+        body: JSON.stringify({ reference: `PSK_UNDERPAID_${Date.now()}` }),
+      });
+      // Inject metadata manually for direct cold reference test
+      metadataByRef.set('PSK_LIVE_UNDERPAID_CHECK', {
+        orderId: 'ord-underpaid',
+        expectedAmountMinor: 18500,
+        expectedCurrency: 'NGN',
+      });
+      const underpaidMetaRes = await realFetch(`${baseUrl}/api/payments/paystack/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer live-firebase-token',
+        },
+        body: JSON.stringify({ reference: 'PSK_LIVE_UNDERPAID_CHECK' }),
+      });
+      expect(underpaidMetaRes.status).toBe(200);
+      const underpaidJson = (await underpaidMetaRes.json()) as {
+        verified: boolean;
+        status: string;
+        orderStatus: string;
+      };
+      expect(underpaidRes.status).toBe(200);
+      expect(underpaidJson.verified).toBe(false);
+      expect(underpaidJson.status).toBe('failed');
+      expect(underpaidJson.orderStatus).toBe('cancelled');
+    } finally {
+      verifySpy.mockRestore();
+      fetchSpy.mockRestore();
+      delete process.env.PAYSTACK_SECRET_KEY;
+      delete process.env.FLUTTERWAVE_SECRET_KEY;
+      if (prevAppUrl !== undefined) process.env.APP_URL = prevAppUrl;
+      else delete process.env.APP_URL;
+    }
+  });
+});
+
+

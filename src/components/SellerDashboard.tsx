@@ -110,7 +110,7 @@ export function SellerDashboard() {
         <div className="bg-white border border-zinc-200 rounded-2xl p-8 text-center space-y-4">
           <h1 className="font-display text-2xl font-bold text-zinc-900">Seller Dashboard</h1>
           <p className="text-sm text-zinc-600 max-w-lg mx-auto">
-            Your live account is currently a customer account. Submit a seller onboarding application in your Customer Portal, or enter Demo Mode (Seller Demo) right now to explore inventory, order fulfilment, and payout tools.
+            Your account is currently registered as a customer account. Submit a seller application in your Account Portal, or enter Seller Demo to explore store inventory, order fulfilment, and payouts.
           </p>
           <button
             type="button"

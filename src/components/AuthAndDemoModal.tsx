@@ -1,9 +1,21 @@
 import { useState } from 'react';
-import { sendPasswordResetEmail } from 'firebase/auth';
-import { X, User, Store, ShieldCheck, LogOut, Loader2, AlertCircle } from 'lucide-react';
-import { auth } from '../lib/firebase.ts';
+import {
+  X,
+  User,
+  Store,
+  ShieldCheck,
+  LogOut,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  ArrowLeft,
+} from 'lucide-react';
 import { useMarketplace } from '../context/MarketplaceContext.tsx';
 import type { UserRole } from '../shared/types.ts';
+
+type AuthMode = 'signin' | 'register' | 'forgot';
 
 export function AuthAndDemoModal() {
   const {
@@ -11,6 +23,9 @@ export function AuthAndDemoModal() {
     setAuthModalOpen,
     firebaseUser,
     signInWithGoogle,
+    registerWithEmailPassword,
+    signInWithEmailPassword,
+    requestPasswordReset,
     signOutLive,
     isDemoMode,
     demoRole,
@@ -19,37 +34,117 @@ export function AuthAndDemoModal() {
     clearDemoError,
     enterDemoMode,
     exitDemoMode,
-    integrations,
-    notify,
   } = useMarketplace();
 
-  const [recoveryOpen, setRecoveryOpen] = useState(false);
-  const [recoveryEmail, setRecoveryEmail] = useState('');
-  const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>('signin');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [resetConfirmation, setResetConfirmation] = useState<string | null>(null);
   const [selectedRoleAttempt, setSelectedRoleAttempt] = useState<UserRole>('customer');
 
   if (!authModalOpen) return null;
+
+  const switchMode = (next: AuthMode) => {
+    setAuthMode(next);
+    setAuthError(null);
+    setResetConfirmation(null);
+  };
+
+  const handleClose = () => {
+    clearDemoError();
+    setAuthError(null);
+    setResetConfirmation(null);
+    setAuthModalOpen(false);
+  };
 
   const handleSelectDemoRole = async (role: UserRole) => {
     setSelectedRoleAttempt(role);
     await enterDemoMode(role);
   };
 
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthSubmitting(true);
+    try {
+      await signInWithEmailPassword(email, password);
+      setPassword('');
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : 'Unable to sign in right now. Please try again.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+
+    const trimmedName = fullName.trim();
+    if (trimmedName.length < 2) {
+      setAuthError('Please enter your full name.');
+      return;
+    }
+    if (password.length < 8) {
+      setAuthError('Password must be at least 8 characters long.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setAuthError('Passwords do not match.');
+      return;
+    }
+
+    setAuthSubmitting(true);
+    try {
+      await registerWithEmailPassword(trimmedName, email, password);
+      setPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      setAuthError(
+        err instanceof Error ? err.message : 'Unable to create your account right now. Please try again.'
+      );
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
   const handlePasswordRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
-    setRecoveryStatus(null);
+    setAuthError(null);
+    setResetConfirmation(null);
+    setAuthSubmitting(true);
     try {
-      await sendPasswordResetEmail(auth, recoveryEmail.trim());
-      setRecoveryStatus(
-        'If an email/password account exists for that address, Firebase Auth sent a recovery link. Google Sign-In users manage passwords via Google Account recovery.'
+      await requestPasswordReset(email);
+      setResetConfirmation(
+        'If an account exists with this email address, you will receive instructions to reset your password.'
       );
-      notify('Password recovery request submitted via Firebase Auth.', 'info');
     } catch (err) {
-      setRecoveryStatus(
+      setAuthError(
         err instanceof Error
           ? err.message
-          : 'Unable to send Firebase password recovery link.'
+          : 'Unable to process your password reset request right now. Please try again.'
       );
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setAuthError(null);
+    setAuthSubmitting(true);
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      setAuthError(
+        err instanceof Error ? err.message : 'Google sign-in could not be completed. Please try again.'
+      );
+    } finally {
+      setAuthSubmitting(false);
     }
   };
 
@@ -59,18 +154,15 @@ export function AuthAndDemoModal() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="font-display text-xl font-bold text-zinc-900">
-              DevStore Sign In &amp; Demo Mode
+              Welcome to DevStore
             </h2>
             <p className="text-xs text-zinc-600 mt-1">
-              Sign in with Google for live persistence, or choose a Demo Mode role below in an isolated sandbox.
+              Welcome to DevStore. Sign in or create an account to explore the marketplace.
             </p>
           </div>
           <button
             type="button"
-            onClick={() => {
-              clearDemoError();
-              setAuthModalOpen(false);
-            }}
+            onClick={handleClose}
             aria-label="Close modal"
             className="p-1 text-zinc-400 hover:text-zinc-900 cursor-pointer"
           >
@@ -78,12 +170,333 @@ export function AuthAndDemoModal() {
           </button>
         </div>
 
-        {/* Demo Mode Role Picker */}
-        <div className="space-y-2.5">
+        {/* Account Authentication */}
+        <div className="space-y-4">
+          {firebaseUser ? (
+            <div className="flex items-center justify-between gap-3 bg-stone-50 border border-zinc-200 rounded-xl p-3.5">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-zinc-900 truncate">
+                  {firebaseUser.displayName || 'DevStore Customer'}
+                </p>
+                <p className="text-xs text-zinc-500 truncate">{firebaseUser.email}</p>
+              </div>
+              <button
+                type="button"
+                onClick={signOutLive}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-zinc-200 text-xs font-semibold text-zinc-800 rounded-lg hover:bg-stone-100 cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Sign Out
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {authMode !== 'forgot' && (
+                <div className="grid grid-cols-2 bg-stone-100 p-1 rounded-xl text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => switchMode('signin')}
+                    className={`py-2 rounded-lg cursor-pointer ui-transition ${
+                      authMode === 'signin'
+                        ? 'bg-white text-zinc-900 shadow-xs'
+                        : 'text-zinc-600 hover:text-zinc-900'
+                    }`}
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchMode('register')}
+                    className={`py-2 rounded-lg cursor-pointer ui-transition ${
+                      authMode === 'register'
+                        ? 'bg-white text-zinc-900 shadow-xs'
+                        : 'text-zinc-600 hover:text-zinc-900'
+                    }`}
+                  >
+                    Create Account
+                  </button>
+                </div>
+              )}
+
+              {authError && (
+                <div
+                  role="alert"
+                  className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-900 flex items-start gap-2"
+                >
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <span>{authError}</span>
+                </div>
+              )}
+
+              {authMode === 'signin' && (
+                <form onSubmit={handleSignIn} className="space-y-3">
+                  <div>
+                    <label htmlFor="auth-signin-email" className="block text-xs font-semibold text-zinc-700 mb-1">
+                      Email Address
+                    </label>
+                    <input
+                      id="auth-signin-email"
+                      type="email"
+                      required
+                      autoComplete="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-900"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label htmlFor="auth-signin-password" className="block text-xs font-semibold text-zinc-700">
+                        Password
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => switchMode('forgot')}
+                        className="text-xs font-medium text-blue-600 hover:underline cursor-pointer"
+                      >
+                        Forgot Password?
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input
+                        id="auth-signin-password"
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        autoComplete="current-password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Enter your password"
+                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 pr-9 text-xs focus:outline-none focus:border-zinc-900"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                      >
+                        {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={authSubmitting}
+                    className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-60 text-white text-xs font-semibold rounded-lg cursor-pointer ui-transition flex items-center justify-center gap-2"
+                  >
+                    {authSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {authSubmitting ? 'Signing In...' : 'Sign In'}
+                  </button>
+
+                  <p className="text-center text-xs text-zinc-600">
+                    New to DevStore?{' '}
+                    <button
+                      type="button"
+                      onClick={() => switchMode('register')}
+                      className="font-semibold text-blue-600 hover:underline cursor-pointer"
+                    >
+                      Create Account
+                    </button>
+                  </p>
+                </form>
+              )}
+
+              {authMode === 'register' && (
+                <form onSubmit={handleRegister} className="space-y-3">
+                  <div>
+                    <label htmlFor="auth-register-name" className="block text-xs font-semibold text-zinc-700 mb-1">
+                      Full Name
+                    </label>
+                    <input
+                      id="auth-register-name"
+                      type="text"
+                      required
+                      minLength={2}
+                      maxLength={100}
+                      autoComplete="name"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="Alex Mercer"
+                      className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="auth-register-email" className="block text-xs font-semibold text-zinc-700 mb-1">
+                      Email Address
+                    </label>
+                    <input
+                      id="auth-register-email"
+                      type="email"
+                      required
+                      autoComplete="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-900"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="auth-register-password" className="block text-xs font-semibold text-zinc-700 mb-1">
+                        Password
+                      </label>
+                      <input
+                        id="auth-register-password"
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        minLength={8}
+                        autoComplete="new-password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Min. 8 characters"
+                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-900"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="auth-register-confirm" className="block text-xs font-semibold text-zinc-700 mb-1">
+                        Confirm Password
+                      </label>
+                      <input
+                        id="auth-register-confirm"
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        minLength={8}
+                        autoComplete="new-password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Repeat password"
+                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-900"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                    <span>Use at least 8 characters.</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="font-medium text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                    >
+                      {showPassword ? 'Hide passwords' : 'Show passwords'}
+                    </button>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={authSubmitting}
+                    className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-60 text-white text-xs font-semibold rounded-lg cursor-pointer ui-transition flex items-center justify-center gap-2"
+                  >
+                    {authSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {authSubmitting ? 'Creating Account...' : 'Create Account'}
+                  </button>
+
+                  <p className="text-center text-xs text-zinc-600">
+                    Already have an account?{' '}
+                    <button
+                      type="button"
+                      onClick={() => switchMode('signin')}
+                      className="font-semibold text-blue-600 hover:underline cursor-pointer"
+                    >
+                      Sign In
+                    </button>
+                  </p>
+                </form>
+              )}
+
+              {authMode === 'forgot' && (
+                <form onSubmit={handlePasswordRecovery} className="space-y-3 bg-stone-50 border border-zinc-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-zinc-900">Forgot Password</h3>
+                    <button
+                      type="button"
+                      onClick={() => switchMode('signin')}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      Back to Sign In
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-zinc-600">
+                    Enter your account email address and we will send you a link to reset your password.
+                  </p>
+
+                  <div>
+                    <label htmlFor="auth-forgot-email" className="block text-xs font-semibold text-zinc-700 mb-1">
+                      Email Address
+                    </label>
+                    <input
+                      id="auth-forgot-email"
+                      type="email"
+                      required
+                      autoComplete="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="w-full border border-zinc-200 bg-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-900"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={authSubmitting}
+                    className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-60 text-white text-xs font-semibold rounded-lg cursor-pointer ui-transition flex items-center justify-center gap-2"
+                  >
+                    {authSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {authSubmitting ? 'Sending Reset Link...' : 'Send Reset Link'}
+                  </button>
+
+                  {resetConfirmation && (
+                    <div
+                      role="status"
+                      className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-900 flex items-start gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>{resetConfirmation}</span>
+                    </div>
+                  )}
+                </form>
+              )}
+
+              {authMode !== 'forgot' && (
+                <>
+                  <div className="relative flex items-center py-0.5">
+                    <div className="flex-grow border-t border-zinc-200" />
+                    <span className="shrink mx-3 text-[11px] uppercase tracking-wider text-zinc-400">
+                      or
+                    </span>
+                    <div className="flex-grow border-t border-zinc-200" />
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={authSubmitting}
+                    onClick={handleGoogleSignIn}
+                    className="w-full py-2.5 px-4 bg-white border border-zinc-300 hover:bg-stone-50 disabled:opacity-60 text-zinc-900 text-xs font-semibold rounded-lg cursor-pointer ui-transition"
+                  >
+                    Continue with Google
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Explore DevStore Demo Role Picker */}
+        <div className="pt-4 border-t border-zinc-200 space-y-2.5">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-mono uppercase tracking-wider font-semibold text-zinc-700">
-              Demo Mode (No Sign-Up)
-            </span>
+            <div>
+              <span className="text-xs font-mono uppercase tracking-wider font-semibold text-zinc-700">
+                Explore DevStore
+              </span>
+              <p className="text-[11px] text-zinc-500 mt-0.5">
+                Preview shopping, selling, and marketplace tools with sample data.
+              </p>
+            </div>
             {isDemoMode && (
               <button
                 type="button"
@@ -104,7 +517,7 @@ export function AuthAndDemoModal() {
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                 <div className="flex-1 space-y-1">
-                  <p className="font-semibold">Unable to start Demo Mode</p>
+                  <p className="font-semibold">Unable to start preview</p>
                   <p className="text-red-800">{demoError}</p>
                 </div>
               </div>
@@ -128,25 +541,25 @@ export function AuthAndDemoModal() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-2.5">
+          <div className="grid grid-cols-1 gap-2">
             {(
               [
                 {
                   role: 'customer' as const,
                   title: 'Customer Demo',
-                  desc: 'Browse catalog, test multi-vendor checkout, simulate Paystack/Flutterwave payments, and download digital assets.',
+                  desc: 'Browse the catalog, test checkout, and download digital products.',
                   icon: User,
                 },
                 {
                   role: 'seller' as const,
                   title: 'Seller Demo',
-                  desc: 'Manage Atelier Systems store, add/edit products, ship split orders, inspect ledger earnings, and request withdrawals.',
+                  desc: 'Manage Atelier Systems store, update products, ship orders, and track earnings.',
                   icon: Store,
                 },
                 {
                   role: 'admin' as const,
                   title: 'Admin Demo',
-                  desc: 'Moderate products, approve sellers, review payouts, configure commissions & FX rates, resolve disputes, and audit activity.',
+                  desc: 'Approve sellers, review products and payouts, and manage marketplace settings.',
                   icon: ShieldCheck,
                 },
               ] as const
@@ -158,7 +571,7 @@ export function AuthAndDemoModal() {
                   type="button"
                   disabled={demoLoading}
                   onClick={() => handleSelectDemoRole(role)}
-                  className={`p-3.5 rounded-xl border text-left flex items-start gap-3 cursor-pointer ui-transition disabled:opacity-60 disabled:cursor-not-allowed ${
+                  className={`p-3 rounded-xl border text-left flex items-start gap-3 cursor-pointer ui-transition disabled:opacity-60 disabled:cursor-not-allowed ${
                     isDemoMode && demoRole === role
                       ? 'border-blue-600 bg-blue-50/50'
                       : 'border-zinc-200 hover:border-zinc-400 hover:bg-stone-50'
@@ -181,89 +594,6 @@ export function AuthAndDemoModal() {
               );
             })}
           </div>
-        </div>
-
-        {/* Live Firebase Authentication */}
-        <div className="pt-4 border-t border-zinc-200 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-mono uppercase tracking-wider font-semibold text-zinc-700">
-              Live Production Account
-            </span>
-            {!firebaseUser && (
-              <button
-                type="button"
-                onClick={() => setRecoveryOpen((prev) => !prev)}
-                className="text-xs text-blue-600 hover:underline font-medium cursor-pointer"
-              >
-                {recoveryOpen ? 'Hide Recovery' : 'Account / Password Recovery'}
-              </button>
-            )}
-          </div>
-
-          {firebaseUser ? (
-            <div className="flex items-center justify-between gap-3 bg-stone-50 border border-zinc-200 rounded-xl p-3.5">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-zinc-900 truncate">
-                  {firebaseUser.displayName}
-                </p>
-                <p className="text-xs text-zinc-500 truncate">{firebaseUser.email}</p>
-              </div>
-              <button
-                type="button"
-                onClick={signOutLive}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-zinc-200 text-xs font-semibold text-zinc-800 rounded-lg hover:bg-stone-100 cursor-pointer"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                Sign Out
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <button
-                type="button"
-                onClick={signInWithGoogle}
-                className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-semibold rounded-lg cursor-pointer ui-transition"
-              >
-                Continue with Google
-              </button>
-
-              {recoveryOpen && (
-                <form
-                  onSubmit={handlePasswordRecovery}
-                  className="bg-stone-50 border border-zinc-200 rounded-xl p-3.5 space-y-2.5 text-xs"
-                >
-                  <p className="font-semibold text-zinc-900">Firebase Account Recovery</p>
-                  <p className="text-zinc-600">
-                    Google Sign-In accounts recover passwords at{' '}
-                    <span className="font-mono">myaccount.google.com</span>. If an email/password provider is enabled on your Firebase project, enter your email below:
-                  </p>
-                  {integrations && !integrations.email.configured && (
-                    <p className="text-zinc-500">
-                      Custom Resend email notifications are currently disabled (awaiting optional{' '}
-                      <span className="font-mono">RESEND_API_KEY</span>); Firebase handles built-in identity recovery directly.
-                    </p>
-                  )}
-                  <div className="flex gap-2">
-                    <input
-                      type="email"
-                      required
-                      value={recoveryEmail}
-                      onChange={(e) => setRecoveryEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      className="flex-1 border border-zinc-200 bg-white rounded-lg px-3 py-2 text-xs"
-                    />
-                    <button
-                      type="submit"
-                      className="px-3.5 py-2 bg-zinc-900 text-white font-semibold rounded-lg cursor-pointer"
-                    >
-                      Send Reset
-                    </button>
-                  </div>
-                  {recoveryStatus && <p className="text-zinc-700">{recoveryStatus}</p>}
-                </form>
-              )}
-            </div>
-          )}
         </div>
       </div>
     </div>

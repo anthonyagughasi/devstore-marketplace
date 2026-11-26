@@ -39,7 +39,7 @@ export function DigitalDepartmentView() {
               Production templates, UI systems, source code, and developer resources.
             </h1>
             <p className="text-sm sm:text-base text-zinc-300 max-w-2xl leading-relaxed">
-              Every digital listing supports Personal, Commercial, and Extended licensing, versioned updates for previous buyers, and private time-limited download authorization.
+              Every digital listing includes Personal, Commercial, and Extended licensing, version updates for previous buyers, and instant access to your purchased downloads.
             </p>
             <div className="pt-2 flex flex-wrap items-center gap-3">
               {isDemoMode ? (
@@ -64,7 +64,7 @@ export function DigitalDepartmentView() {
               )}
               <div className="flex items-center gap-2 text-xs text-zinc-400">
                 <Lock className="w-3.5 h-3.5 text-zinc-400" />
-                <span>Private asset vault · HMAC signed download URLs</span>
+                <span>Verified digital licenses · Instant secure downloads</span>
               </div>
             </div>
           </div>
