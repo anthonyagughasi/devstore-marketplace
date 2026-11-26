@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { sendPasswordResetEmail } from 'firebase/auth';
-import { X, User, Store, ShieldCheck, LogOut } from 'lucide-react';
+import { X, User, Store, ShieldCheck, LogOut, Loader2, AlertCircle } from 'lucide-react';
 import { auth } from '../lib/firebase.ts';
 import { useMarketplace } from '../context/MarketplaceContext.tsx';
+import type { UserRole } from '../shared/types.ts';
 
 export function AuthAndDemoModal() {
   const {
@@ -13,6 +14,9 @@ export function AuthAndDemoModal() {
     signOutLive,
     isDemoMode,
     demoRole,
+    demoLoading,
+    demoError,
+    clearDemoError,
     enterDemoMode,
     exitDemoMode,
     integrations,
@@ -22,8 +26,14 @@ export function AuthAndDemoModal() {
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
+  const [selectedRoleAttempt, setSelectedRoleAttempt] = useState<UserRole>('customer');
 
   if (!authModalOpen) return null;
+
+  const handleSelectDemoRole = async (role: UserRole) => {
+    setSelectedRoleAttempt(role);
+    await enterDemoMode(role);
+  };
 
   const handlePasswordRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,12 +62,15 @@ export function AuthAndDemoModal() {
               DevStore Sign In &amp; Demo Mode
             </h2>
             <p className="text-xs text-zinc-600 mt-1">
-              Sign in with Google for live persistence, or enter Demo Mode immediately in an isolated sandbox.
+              Sign in with Google for live persistence, or choose a Demo Mode role below in an isolated sandbox.
             </p>
           </div>
           <button
             type="button"
-            onClick={() => setAuthModalOpen(false)}
+            onClick={() => {
+              clearDemoError();
+              setAuthModalOpen(false);
+            }}
             aria-label="Close modal"
             className="p-1 text-zinc-400 hover:text-zinc-900 cursor-pointer"
           >
@@ -74,13 +87,46 @@ export function AuthAndDemoModal() {
             {isDemoMode && (
               <button
                 type="button"
+                disabled={demoLoading}
                 onClick={exitDemoMode}
-                className="text-xs font-medium text-red-600 hover:underline cursor-pointer"
+                className="text-xs font-medium text-red-600 hover:underline cursor-pointer disabled:opacity-50"
               >
                 Exit Demo Mode
               </button>
             )}
           </div>
+
+          {demoError && (
+            <div
+              role="alert"
+              className="bg-red-50 border border-red-200 rounded-xl p-3.5 text-xs text-red-900 space-y-2"
+            >
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-1">
+                  <p className="font-semibold">Unable to start Demo Mode</p>
+                  <p className="text-red-800">{demoError}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 pl-6">
+                <button
+                  type="button"
+                  disabled={demoLoading}
+                  onClick={() => handleSelectDemoRole(selectedRoleAttempt)}
+                  className="px-3 py-1.5 bg-red-700 hover:bg-red-800 text-white font-semibold rounded-lg cursor-pointer disabled:opacity-50"
+                >
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  onClick={clearDemoError}
+                  className="px-3 py-1.5 bg-white border border-red-200 text-red-900 font-medium rounded-lg cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-2.5">
             {(
@@ -104,26 +150,36 @@ export function AuthAndDemoModal() {
                   icon: ShieldCheck,
                 },
               ] as const
-            ).map(({ role, title, desc, icon: Icon }) => (
-              <button
-                key={role}
-                type="button"
-                onClick={() => enterDemoMode(role)}
-                className={`p-3.5 rounded-xl border text-left flex items-start gap-3 cursor-pointer ui-transition ${
-                  isDemoMode && demoRole === role
-                    ? 'border-blue-600 bg-blue-50/50'
-                    : 'border-zinc-200 hover:border-zinc-400 hover:bg-stone-50'
-                }`}
-              >
-                <div className="p-2 bg-stone-100 rounded-lg text-zinc-900 shrink-0">
-                  <Icon className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-zinc-900">{title}</p>
-                  <p className="text-xs text-zinc-600 mt-0.5">{desc}</p>
-                </div>
-              </button>
-            ))}
+            ).map(({ role, title, desc, icon: Icon }) => {
+              const isStartingThis = demoLoading && selectedRoleAttempt === role;
+              return (
+                <button
+                  key={role}
+                  type="button"
+                  disabled={demoLoading}
+                  onClick={() => handleSelectDemoRole(role)}
+                  className={`p-3.5 rounded-xl border text-left flex items-start gap-3 cursor-pointer ui-transition disabled:opacity-60 disabled:cursor-not-allowed ${
+                    isDemoMode && demoRole === role
+                      ? 'border-blue-600 bg-blue-50/50'
+                      : 'border-zinc-200 hover:border-zinc-400 hover:bg-stone-50'
+                  }`}
+                >
+                  <div className="p-2 bg-stone-100 rounded-lg text-zinc-900 shrink-0">
+                    {isStartingThis ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                    ) : (
+                      <Icon className="w-4 h-4" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-zinc-900">
+                      {isStartingThis ? `Starting ${title}...` : title}
+                    </p>
+                    <p className="text-xs text-zinc-600 mt-0.5">{desc}</p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 

@@ -6,8 +6,8 @@ import type {
   PaymentProviderId,
   Product,
   SellerOrder,
-} from '../../shared/types.ts';
-import { calculateCommissionSplit, getLicenseUnitPriceMinor } from '../../shared/currency.ts';
+} from '../../shared/types.js';
+import { calculateCommissionSplit, getLicenseUnitPriceMinor } from '../../shared/currency.js';
 
 export interface InitializePaymentRequest {
   reference: string;

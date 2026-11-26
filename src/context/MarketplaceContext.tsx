@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   onAuthStateChanged,
   signInWithPopup,
@@ -143,8 +143,11 @@ interface MarketplaceContextValue {
   demoRole: UserRole;
   demoNamespaceId: string | null;
   demoLoading: boolean;
+  demoError: string | null;
+  clearDemoError: () => void;
   authModalOpen: boolean;
   setAuthModalOpen: (open: boolean) => void;
+  openDemoSelector: () => void;
   cartDrawerOpen: boolean;
   setCartDrawerOpen: (open: boolean) => void;
 
@@ -305,6 +308,39 @@ const EMPTY_BALANCES: SellerBalances = {
   withdrawnOrPendingMinor: 0,
 };
 
+const DEMO_STATE_STORAGE_KEY = 'devstore_demo_state_v1';
+
+async function parseApiResponse<T = Record<string, any>>(
+  res: Response,
+  fallbackError: string
+): Promise<T> {
+  const rawText = await res.text();
+  let parsed: Record<string, any> | null = null;
+  if (rawText) {
+    try {
+      parsed = JSON.parse(rawText) as Record<string, any>;
+    } catch {
+      parsed = null;
+    }
+  }
+
+  if (!res.ok) {
+    const serverMessage =
+      parsed && typeof parsed.error === 'string' && parsed.error.trim()
+        ? parsed.error
+        : parsed && typeof parsed.message === 'string' && parsed.message.trim()
+        ? parsed.message
+        : null;
+    throw new Error(serverMessage || `${fallbackError} (HTTP ${res.status}). Please retry.`);
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('The server returned an unexpected non-JSON response. Please retry.');
+  }
+
+  return parsed as T;
+}
+
 export function MarketplaceProvider({ children }: { children: React.ReactNode }) {
   const [view, setView] = useState<AppView>('home');
   const [selectedProductSlug, setSelectedProductSlug] = useState<string | null>(null);
@@ -322,6 +358,9 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const [demoToken, setDemoToken] = useState<string | null>(null);
   const [demoNamespaceId, setDemoNamespaceId] = useState<string | null>(null);
   const [demoLoading, setDemoLoading] = useState(false);
+  const [demoError, setDemoError] = useState<string | null>(null);
+  const demoStateTokenRef = useRef<string | null>(null);
+  const demoSessionLockRef = useRef<boolean>(false);
 
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
@@ -573,47 +612,127 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     []
   );
 
+  const clearDemoError = useCallback(() => setDemoError(null), []);
+
+  const openDemoSelector = useCallback(() => {
+    setDemoError(null);
+    setAuthModalOpen(true);
+  }, []);
+
+  const captureDemoStateToken = useCallback((tokenCandidate?: string | null, res?: Response) => {
+    const resolved = tokenCandidate || res?.headers.get('x-demo-state') || null;
+    if (resolved) {
+      demoStateTokenRef.current = resolved;
+      try {
+        sessionStorage.setItem(DEMO_STATE_STORAGE_KEY, resolved);
+      } catch {
+        // Ignore storage restrictions
+      }
+    }
+  }, []);
+
   const demoFetch = useCallback(
-    async (path: string, method = 'GET', body?: unknown, overrideToken?: string) => {
+    async (
+      path: string,
+      method = 'GET',
+      body?: unknown,
+      overrideToken?: string,
+      overrideStateToken?: string | null
+    ) => {
       const token = overrideToken || demoToken;
       if (!token) throw new Error('Demo session not active.');
+
+      const stateToken =
+        overrideStateToken !== undefined
+          ? overrideStateToken
+          : demoStateTokenRef.current ||
+            (() => {
+              try {
+                return sessionStorage.getItem(DEMO_STATE_STORAGE_KEY);
+              } catch {
+                return null;
+              }
+            })();
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-demo-token': token,
+      };
+      if (stateToken) {
+        headers['x-demo-state'] = stateToken;
+      }
+
       const res = await fetch(path, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          'x-demo-token': token,
-        },
+        headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Demo request failed.');
-      }
+      const data = await parseApiResponse<Record<string, any>>(res, 'Demo request failed');
+      captureDemoStateToken(data.demoStateToken, res);
       return data;
     },
-    [demoToken]
+    [captureDemoStateToken, demoToken]
   );
 
   const enterDemoMode = useCallback(
     async (targetRole: UserRole) => {
+      if (demoSessionLockRef.current) return;
+      demoSessionLockRef.current = true;
       setDemoLoading(true);
+      setDemoError(null);
       try {
+        const currentStateToken =
+          demoStateTokenRef.current ||
+          (() => {
+            try {
+              return sessionStorage.getItem(DEMO_STATE_STORAGE_KEY);
+            } catch {
+              return null;
+            }
+          })();
+
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (currentStateToken && demoNamespaceId) {
+          headers['x-demo-state'] = currentStateToken;
+        }
+
         const res = await fetch('/api/demo/session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             role: targetRole,
             existingNamespaceId: demoNamespaceId,
           }),
         });
-        const sessionData = await res.json();
-        if (!res.ok) throw new Error(sessionData.error || 'Failed to start demo session.');
+        const sessionData = await parseApiResponse<{
+          demoToken: string;
+          demoStateToken?: string;
+          namespaceId: string;
+          role: UserRole;
+        }>(res, 'Unable to start demo session');
+
+        captureDemoStateToken(sessionData.demoStateToken, res);
+
+        const statePayload = await demoFetch(
+          '/api/demo/state',
+          'GET',
+          undefined,
+          sessionData.demoToken,
+          sessionData.demoStateToken || demoStateTokenRef.current
+        );
 
         setDemoToken(sessionData.demoToken);
         setIsDemoMode(true);
-
-        const statePayload = await demoFetch('/api/demo/state', 'GET', undefined, sessionData.demoToken);
-        applyDemoPayload(statePayload);
+        applyDemoPayload(
+          statePayload as {
+            role: UserRole;
+            namespaceId: string;
+            state: any;
+            sellerBalances: SellerBalances;
+          }
+        );
         setAuthModalOpen(false);
 
         if (targetRole === 'seller') setView('seller');
@@ -631,17 +750,28 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           'success'
         );
       } catch (err) {
-        notify(err instanceof Error ? err.message : 'Unable to start demo.', 'error');
+        const message = err instanceof Error ? err.message : 'Unable to start demo session.';
+        setDemoError(message);
+        notify(message, 'error');
       } finally {
+        demoSessionLockRef.current = false;
         setDemoLoading(false);
       }
     },
-    [applyDemoPayload, demoFetch, demoNamespaceId, notify, view]
+    [applyDemoPayload, captureDemoStateToken, demoFetch, demoNamespaceId, notify, view]
   );
 
   const exitDemoMode = useCallback(() => {
     setIsDemoMode(false);
     setDemoToken(null);
+    setDemoNamespaceId(null);
+    setDemoError(null);
+    demoStateTokenRef.current = null;
+    try {
+      sessionStorage.removeItem(DEMO_STATE_STORAGE_KEY);
+    } catch {
+      // Ignore storage restrictions
+    }
     setDemoRole('customer');
     setDepartments(SEED_DEPARTMENTS);
     setStores(SEED_STORES);
@@ -670,7 +800,14 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     setDemoLoading(true);
     try {
       const payload = await demoFetch('/api/demo/reset', 'POST');
-      applyDemoPayload(payload);
+      applyDemoPayload(
+        payload as {
+          role: UserRole;
+          namespaceId: string;
+          state: any;
+          sellerBalances: SellerBalances;
+        }
+      );
       notify('Demo sandbox restored to fresh seeded data.', 'success');
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Reset failed.', 'error');
@@ -912,11 +1049,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           callbackUrl: window.location.origin,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || `${params.provider} payment initialization failed.`);
-      }
-      return data;
+      return parseApiResponse<Awaited<ReturnType<MarketplaceContextValue['initializeLivePayment']>>>(
+        res,
+        `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} payment initialization failed`
+      );
     },
     [currency, firebaseUser, liveIdToken]
   );
@@ -948,11 +1084,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           callbackStatus: params.callbackStatus,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || `${params.provider} verification failed.`);
-      }
-      return data;
+      return parseApiResponse<Awaited<ReturnType<MarketplaceContextValue['verifyLivePayment']>>>(
+        res,
+        `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} verification failed`
+      );
     },
     [firebaseUser, liveIdToken]
   );
@@ -994,11 +1129,23 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           const data = await demoFetch('/api/demo/downloads/issue-token', 'POST', {
             entitlementId: entitlement.id,
           });
-          const fileRes = await fetch(data.downloadUrl);
+          const stateToken =
+            demoStateTokenRef.current ||
+            (() => {
+              try {
+                return sessionStorage.getItem(DEMO_STATE_STORAGE_KEY);
+              } catch {
+                return null;
+              }
+            })();
+          const fileRes = await fetch(data.downloadUrl, {
+            headers: stateToken ? { 'x-demo-state': stateToken } : undefined,
+          });
           if (!fileRes.ok) {
-            const errJson = await fileRes.json().catch(() => ({}));
-            throw new Error(errJson.error || 'Download failed.');
+            await parseApiResponse(fileRes, 'Download failed');
+            throw new Error('Download failed.');
           }
+          captureDemoStateToken(null, fileRes);
           const blob = await fileRes.blob();
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -1011,7 +1158,12 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
 
           // Refresh demo state so downloadsUsed counter updates
           const refreshed = await demoFetch('/api/demo/state');
-          applyDemoPayload(refreshed);
+          applyDemoPayload(refreshed as {
+            role: UserRole;
+            namespaceId: string;
+            state: any;
+            sellerBalances: SellerBalances;
+          });
           notify(`Downloaded ${entitlement.productTitle} via signed temporary URL.`, 'success');
           return;
         }
@@ -1032,10 +1184,15 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
             licenseType: entitlement.licenseType,
           }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to issue download URL.');
+        const data = await parseApiResponse<{ downloadUrl: string }>(
+          res,
+          'Failed to issue download URL'
+        );
         const fileRes = await fetch(data.downloadUrl);
-        if (!fileRes.ok) throw new Error('Download file stream unavailable.');
+        if (!fileRes.ok) {
+          await parseApiResponse(fileRes, 'Download file stream unavailable');
+          throw new Error('Download file stream unavailable.');
+        }
         const blob = await fileRes.blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1049,7 +1206,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         notify(err instanceof Error ? err.message : 'Download failed.', 'error');
       }
     },
-    [applyDemoPayload, demoFetch, isDemoMode, liveIdToken, notify]
+    [applyDemoPayload, captureDemoStateToken, demoFetch, isDemoMode, liveIdToken, notify]
   );
 
   const submitReview = useCallback(
@@ -1312,8 +1469,11 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       demoRole,
       demoNamespaceId,
       demoLoading,
+      demoError,
+      clearDemoError,
       authModalOpen,
       setAuthModalOpen,
+      openDemoSelector,
       cartDrawerOpen,
       setCartDrawerOpen,
       enterDemoMode,
@@ -1390,6 +1550,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       authReady,
       cart,
       cartDrawerOpen,
+      clearDemoError,
       clearPendingPaymentCallback,
       compareIds,
       coupons,
@@ -1400,6 +1561,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       deleteDemoProduct,
       demoActivityLogs,
       demoCustomers,
+      demoError,
       demoLoading,
       demoNamespaceId,
       demoRole,
@@ -1418,6 +1580,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       liveRole,
       moderateDemoProduct,
       notify,
+      openDemoSelector,
       openDispute,
       openProduct,
       orders,

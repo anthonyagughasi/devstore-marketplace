@@ -1,17 +1,18 @@
 import crypto from 'crypto';
 import type { Server } from 'http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createApp } from '../src/server/app.ts';
-import { paymentTransactionStore } from '../src/server/payments/index.ts';
-import { buildMultiVendorOrderSplit } from '../src/server/payments/types.ts';
-import { adminAuth, resolvePrivateAssetPath, signHmacToken } from '../src/server/security.ts';
-import { SEED_PRODUCTS } from '../src/shared/catalogData.ts';
+import { createApp } from '../src/server/app.js';
+import { demoEngine } from '../src/server/demo/demoEngine.js';
+import { paymentTransactionStore } from '../src/server/payments/index.js';
+import { buildMultiVendorOrderSplit } from '../src/server/payments/types.js';
+import { getAdminAuth, resolvePrivateAssetPath, signHmacToken } from '../src/server/security.js';
+import { SEED_PRODUCTS } from '../src/shared/catalogData.js';
 import {
   calculateCommissionSplit,
   convertMinorAmount,
   getLicenseUnitPriceMinor,
-} from '../src/shared/currency.ts';
-import type { Product } from '../src/shared/types.ts';
+} from '../src/shared/currency.js';
+import type { Product } from '../src/shared/types.js';
 
 let server: Server;
 let baseUrl = '';
@@ -48,6 +49,7 @@ async function startDemoSession(role: 'customer' | 'seller' | 'admin', existingN
   expect(res.status).toBe(200);
   return (await res.json()) as {
     demoToken: string;
+    demoStateToken: string;
     namespaceId: string;
     role: string;
     expiresAt: string;
@@ -248,7 +250,8 @@ describe('DevStore Production Auth Isolation & Payment Webhook Security', () => 
     process.env.PAYSTACK_SECRET_KEY = 'sk_test_paystack_mock';
     process.env.FLUTTERWAVE_SECRET_KEY = 'FLWSECK_TEST_mock';
 
-    const verifySpy = vi.spyOn(adminAuth, 'verifyIdToken').mockResolvedValue({
+    const adminAuthInstance = await getAdminAuth();
+    const verifySpy = vi.spyOn(adminAuthInstance, 'verifyIdToken').mockResolvedValue({
       uid: 'live-buyer-1',
       email: 'buyer@devstore.example.com',
       aud: 'test',
@@ -847,7 +850,7 @@ describe('DevStore Demo Mode RBAC, Flows & Sandbox Isolation', () => {
     delete process.env.EMAIL_FROM;
 
     const { sendTransactionalEmail, clearDevEmailPreviews } = await import(
-      '../src/server/email/resendAdapter.ts'
+      '../src/server/email/resendAdapter.js'
     );
     clearDevEmailPreviews();
 
@@ -900,7 +903,7 @@ describe('DevStore Demo Mode RBAC, Flows & Sandbox Isolation', () => {
   });
 
   it('generates SigV4 presigned URLs for private S3-compatible storage when configured and stays optional otherwise', async () => {
-    const { S3CompatibleStorageAdapter } = await import('../src/server/storage/s3Storage.ts');
+    const { S3CompatibleStorageAdapter } = await import('../src/server/storage/s3Storage.js');
     const s3 = new S3CompatibleStorageAdapter();
 
     // Initially unconfigured
@@ -928,6 +931,96 @@ describe('DevStore Demo Mode RBAC, Flows & Sandbox Isolation', () => {
       delete process.env.S3_ACCESS_KEY_ID;
       delete process.env.S3_SECRET_ACCESS_KEY;
     }
+  });
+
+  it('persists Demo Mode state across cold Vercel serverless instances and always emits JSON errors', async () => {
+    // 1. Missing body defaults cleanly to Customer Demo JSON response
+    const emptyBodyRes = await fetch(`${baseUrl}/api/demo/session`, {
+      method: 'POST',
+    });
+    expect(emptyBodyRes.status).toBe(200);
+    expect(emptyBodyRes.headers.get('content-type')).toContain('application/json');
+    const session = (await emptyBodyRes.json()) as {
+      demoToken: string;
+      demoStateToken: string;
+      namespaceId: string;
+      role: string;
+    };
+    expect(session.role).toBe('customer');
+    expect(session.demoStateToken).toBeTruthy();
+
+    // 2. Update cart in instance A
+    const cartRes = await fetch(`${baseUrl}/api/demo/cart`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-demo-token': session.demoToken,
+        'x-demo-state': session.demoStateToken,
+      },
+      body: JSON.stringify({
+        items: [{ productId: 'prod-kanso-75-keyboard', quantity: 3 }],
+      }),
+    });
+    expect(cartRes.status).toBe(200);
+    const cartJson = (await cartRes.json()) as {
+      cart: Array<{ productId: string; quantity: number }>;
+      demoStateToken: string;
+    };
+    expect(cartJson.cart).toEqual([{ productId: 'prod-kanso-75-keyboard', quantity: 3 }]);
+    expect(cartJson.demoStateToken).toBeTruthy();
+
+    // 3. Evict in-memory cache to simulate a brand-new cold Vercel serverless container
+    demoEngine.deleteNamespace(session.namespaceId);
+
+    const freshApp = createApp();
+    let freshServer!: Server;
+    let freshBaseUrl = '';
+    await new Promise<void>((resolve) => {
+      freshServer = freshApp.listen(0, '127.0.0.1', () => {
+        const addr = freshServer.address();
+        if (addr && typeof addr === 'object') {
+          freshBaseUrl = `http://127.0.0.1:${addr.port}`;
+        }
+        resolve();
+      });
+    });
+
+    try {
+      const restoredRes = await fetch(`${freshBaseUrl}/api/demo/state`, {
+        headers: {
+          'x-demo-token': session.demoToken,
+          'x-demo-state': cartJson.demoStateToken,
+        },
+      });
+      expect(restoredRes.status).toBe(200);
+      const restored = (await restoredRes.json()) as {
+        state: { customerCart: Array<{ productId: string; quantity: number }> };
+      };
+      expect(restored.state.customerCart).toEqual([
+        { productId: 'prod-kanso-75-keyboard', quantity: 3 },
+      ]);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        freshServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+
+    // 4. Malformed JSON and unknown /api routes always return structured JSON errors (never HTML/plain text)
+    const malformedRes = await fetch(`${baseUrl}/api/demo/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"role":',
+    });
+    expect(malformedRes.status).toBe(400);
+    expect(malformedRes.headers.get('content-type')).toContain('application/json');
+    const malformedJson = (await malformedRes.json()) as { error: string };
+    expect(malformedJson.error).toBeTruthy();
+
+    const missingRouteRes = await fetch(`${baseUrl}/api/demo/nonexistent-route`);
+    expect(missingRouteRes.status).toBe(404);
+    expect(missingRouteRes.headers.get('content-type')).toContain('application/json');
+    const missingRouteJson = (await missingRouteRes.json()) as { error: string };
+    expect(missingRouteJson.error).toBeTruthy();
   });
 });
 

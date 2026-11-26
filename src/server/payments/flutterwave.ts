@@ -1,9 +1,9 @@
 import crypto from 'crypto';
-import type { CurrencyCode } from '../../shared/types.ts';
+import type { CurrencyCode } from '../../shared/types.js';
 import {
   CrossProviderMismatchError,
   paymentTransactionStore,
-} from './transactions.ts';
+} from './transactions.js';
 import {
   generatePaymentReference,
   getCrossProviderReferenceError,
@@ -14,7 +14,7 @@ import {
   type ParsedWebhookEvent,
   type PaymentProviderAdapter,
   type VerifyPaymentResponse,
-} from './types.ts';
+} from './types.js';
 
 export class FlutterwaveAdapter implements PaymentProviderAdapter {
   readonly id = 'flutterwave' as const;

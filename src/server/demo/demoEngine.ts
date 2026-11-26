@@ -23,7 +23,7 @@ import type {
   Store,
   UserRole,
   WithdrawalRequest,
-} from '../../shared/types.ts';
+} from '../../shared/types.js';
 import {
   SEED_COUPONS,
   SEED_DEMO_CUSTOMERS,
@@ -40,12 +40,13 @@ import {
   SEED_QUESTIONS,
   SEED_REVIEWS,
   SEED_STORES,
-} from '../../shared/catalogData.ts';
-import { buildMultiVendorOrderSplit, generatePaymentReference } from '../payments/types.ts';
-import { calculateCommissionSplit } from '../../shared/currency.ts';
+} from '../../shared/catalogData.js';
+import { buildMultiVendorOrderSplit, generatePaymentReference } from '../payments/types.js';
+import { calculateCommissionSplit } from '../../shared/currency.js';
 
 export interface DemoNamespaceState {
   namespaceId: string;
+  revision: number;
   createdAt: number;
   departments: Department[];
   stores: Store[];
@@ -73,9 +74,10 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function createSeededDemoState(namespaceId: string): DemoNamespaceState {
+export function createSeededDemoState(namespaceId: string): DemoNamespaceState {
   return {
     namespaceId,
+    revision: 1,
     createdAt: Date.now(),
     departments: clone(SEED_DEPARTMENTS),
     stores: clone(SEED_STORES),
@@ -148,23 +150,35 @@ class DemoEngine {
   private readonly namespaces = new Map<string, DemoNamespaceState>();
   private readonly MAX_NAMESPACES = 200;
 
+  peekNamespace(namespaceId: string): DemoNamespaceState | undefined {
+    return this.namespaces.get(namespaceId);
+  }
+
+  saveNamespace(ns: DemoNamespaceState): void {
+    if (!this.namespaces.has(ns.namespaceId) && this.namespaces.size >= this.MAX_NAMESPACES) {
+      const oldestKey = this.namespaces.keys().next().value;
+      if (oldestKey) this.namespaces.delete(oldestKey);
+    }
+    this.namespaces.set(ns.namespaceId, ns);
+  }
+
+  deleteNamespace(namespaceId: string): void {
+    this.namespaces.delete(namespaceId);
+  }
+
   getOrCreateNamespace(namespaceId: string): DemoNamespaceState {
     const existing = this.namespaces.get(namespaceId);
     if (existing) return existing;
 
-    // Evict oldest namespace if capacity exceeded to prevent memory exhaustion
-    if (this.namespaces.size >= this.MAX_NAMESPACES) {
-      const oldestKey = this.namespaces.keys().next().value;
-      if (oldestKey) this.namespaces.delete(oldestKey);
-    }
-
     const fresh = createSeededDemoState(namespaceId);
-    this.namespaces.set(namespaceId, fresh);
+    this.saveNamespace(fresh);
     return fresh;
   }
 
   resetNamespace(namespaceId: string): DemoNamespaceState {
+    const prevRev = this.namespaces.get(namespaceId)?.revision ?? 1;
     const fresh = createSeededDemoState(namespaceId);
+    fresh.revision = prevRev + 1;
     fresh.activityLogs.unshift({
       id: `dlog-${Date.now()}`,
       role: 'customer',
@@ -172,7 +186,7 @@ class DemoEngine {
       detail: 'Demo workspace reset to initial seeded state.',
       createdAt: new Date().toISOString(),
     });
-    this.namespaces.set(namespaceId, fresh);
+    this.saveNamespace(fresh);
     return fresh;
   }
 

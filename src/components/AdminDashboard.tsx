@@ -25,7 +25,9 @@ export function AdminDashboard() {
   const {
     isDemoMode,
     demoRole,
+    demoLoading,
     enterDemoMode,
+    openDemoSelector,
     liveRole,
     demoCustomers,
     stores,
@@ -83,10 +85,11 @@ export function AdminDashboard() {
           </p>
           <button
             type="button"
-            onClick={() => enterDemoMode('admin')}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
+            disabled={demoLoading}
+            onClick={openDemoSelector}
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-50"
           >
-            Enter Demo Mode (Admin Demo)
+            Enter Demo Mode
           </button>
         </div>
       </section>
@@ -105,8 +108,9 @@ export function AdminDashboard() {
           </p>
           <button
             type="button"
+            disabled={demoLoading}
             onClick={() => enterDemoMode('admin')}
-            className="px-5 py-2.5 bg-zinc-900 text-white text-xs font-semibold rounded-lg cursor-pointer"
+            className="px-5 py-2.5 bg-zinc-900 text-white text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-50"
           >
             Admin Demo
           </button>

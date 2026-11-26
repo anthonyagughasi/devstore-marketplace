@@ -94,7 +94,8 @@ cp .env.example .env
 | Variable | Required For | Description |
 | :--- | :--- | :--- |
 | `APP_URL` | SEO / Callbacks | Public base URL (e.g. `https://devstore.vercel.app`) |
-| `SESSION_SIGNING_SECRET` | Demo & Downloads | Random 32+ byte secret for HMAC-SHA256 demo & download tokens (ephemeral fallback locally) |
+| `SESSION_SIGNING_SECRET` | Demo & Downloads | Random 32+ byte secret for HMAC-SHA256 demo tokens, demo state envelopes, and download tokens (recommended in Vercel Production) |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Demo Persistence *(Optional)* | Optional Vercel KV / Upstash Redis REST credentials (`UPSTASH_REDIS_REST_*` also supported); falls back to HMAC-signed `x-demo-state` tokens |
 | `PAYSTACK_PUBLIC_KEY` | Live Paystack (Optional for Demo) | Paystack public key (`pk_test_...` / `pk_live_...`) |
 | `PAYSTACK_SECRET_KEY` | Live Paystack (Optional for Demo) | Server-only secret key (`sk_test_...` / `sk_live_...`) |
 | `PAYSTACK_WEBHOOK_SECRET` | Paystack Webhooks | HMAC-SHA512 secret for `/api/webhooks/paystack` |
@@ -137,8 +138,8 @@ DevStore uses **Firebase Firestore** configured via `firebase-applet-config.json
 
 ## 8. Payment Integration & Webhook Configuration
 DevStore separates checkout orchestration from provider specifics via `PaymentProviderAdapter`:
-- **Paystack** (`src/server/payments/paystack.ts`): Uses minor units (`kobo`/`cents`), initializes via `https://api.paystack.co/transaction/initialize`, verifies via `/transaction/verify/:reference`, and validates webhooks via timing-safe `HMAC-SHA512` on the raw request body (`x-paystack-signature`).
-- **Flutterwave** (`src/server/payments/flutterwave.ts`): Converts minor units to major decimals for `/v3/payments`, verifies transactions server-side, and validates webhooks via timing-safe comparison against `verif-hash`.
+- **Paystack** (`src/server/payments/paystack.ts`): Uses minor units (`kobo`/`cents`), initializes via `https://api.paystack.co/transaction/initialize`, immediately redirects the customer's browser to Paystack's `authorization_url`, verifies callbacks via `/transaction/verify/:reference`, and validates webhooks via timing-safe `HMAC-SHA512` on the raw request body (`x-paystack-signature`).
+- **Flutterwave** (`src/server/payments/flutterwave.ts`): Converts minor units to major decimals for `/v3/payments`, immediately redirects the customer's browser to Flutterwave's hosted checkout URL (`data.link`), verifies callbacks server-side, and validates webhooks via timing-safe comparison against `verif-hash`.
 - **Idempotency & Server-to-Server Re-Verification**: Both `/api/webhooks/paystack` and `/api/webhooks/flutterwave` capture raw payloads across both local Express and Vercel serverless runtimes, deduplicate events via `IdempotencyRegistry`, and verify transactions against the provider's verify API when gateway secrets are configured.
 
 ### Configuring Webhook URLs After Deploying to Vercel
@@ -175,13 +176,13 @@ You do **not** need webhook URLs during local development. Once deployed to Verc
 
 ## 11. Demo Mode
 DevStore includes an isolated **Demo Mode Sandbox**:
-- Select **Customer Demo**, **Seller Demo**, or **Admin Demo** from the header ("Explore Demo") or Sign-In modal ("Enter Demo Mode") without registering.
+- Click **Explore Demo** or **Enter Demo Mode** anywhere in the storefront to open the shared role-selection modal (**Customer Demo**, **Seller Demo**, or **Admin Demo**) without registering.
 - **Architecture & Isolation**:
   - Server issues an HMAC-signed `demoToken` containing `{ isDemo: true, role, namespaceId, exp }`.
   - State lives in isolated namespace sandboxes inside `demoEngine`—never writing to Firestore, never hitting Paystack/Flutterwave APIs, and never sending emails.
   - Production endpoints reject demo tokens with `403`.
   - Supports **Simulated Payments** (`success`, `failed`, `cancelled`, `pending`), seller product CRUD, inventory updates, balance/withdrawal enforcement, admin moderation, commission reconfiguration, and **Reset Demo**.
-- **Vercel Serverless Note**: `demoEngine` uses in-memory `Map` namespaces per serverless instance. For cross-instance sticky demo state under heavy concurrent Vercel scaling, back `DemoEngine` with **Upstash Redis** (`UPSTASH_REDIS_REST_URL`).
+- **Vercel Serverless Persistence**: Across ephemeral Vercel serverless instances, `demoPersistence.ts` preserves each sandbox namespace cleanly using HMAC-signed, compressed `x-demo-state` tokens (and optional Vercel KV / Upstash Redis REST storage via `KV_REST_API_URL` + `KV_REST_API_TOKEN` or `UPSTASH_REDIS_REST_*`). All `/api/*` endpoints consistently emit structured JSON responses even on unexpected errors.
 
 ---
 
@@ -225,7 +226,7 @@ npm run lint:rules
 2. **Deploy on Vercel**:
    - Import your GitHub repository in the Vercel Dashboard.
    - Framework preset: **Vite** (custom `vercel.json` is already configured to route `/api/*`, `/robots.txt`, and `/sitemap.xml` to `/api/index.ts`).
-   - Add environment variables (`SESSION_SIGNING_SECRET`, `APP_URL`, `PAYSTACK_*`, `FLUTTERWAVE_*`, `RESEND_API_KEY`, `EMAIL_FROM`) in **Vercel Project -> Settings -> Environment Variables**.
+   - Add environment variables (`SESSION_SIGNING_SECRET`, `APP_URL`, `PAYSTACK_*`, `FLUTTERWAVE_*`, optional `KV_REST_API_*`, optional `RESEND_API_KEY` / `EMAIL_FROM`) in **Vercel Project -> Settings -> Environment Variables**.
    - Add your `.vercel.app` domain to **Firebase Authentication -> Authorized domains**.
    - Deploy!
 

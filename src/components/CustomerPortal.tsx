@@ -6,7 +6,8 @@ import { ProductCard } from './ProductCard.tsx';
 export function CustomerPortal() {
   const {
     isDemoMode,
-    enterDemoMode,
+    demoLoading,
+    openDemoSelector,
     firebaseUser,
     setAuthModalOpen,
     orders,
@@ -57,8 +58,9 @@ export function CustomerPortal() {
             </button>
             <button
               type="button"
-              onClick={() => enterDemoMode('customer')}
-              className="px-5 py-2.5 bg-blue-600 text-white text-xs font-semibold rounded-lg cursor-pointer"
+              disabled={demoLoading}
+              onClick={openDemoSelector}
+              className="px-5 py-2.5 bg-blue-600 text-white text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-50"
             >
               Enter Demo Mode
             </button>

@@ -1,11 +1,11 @@
-import type { CurrencyCode, PaymentProviderId } from '../../shared/types.ts';
+import type { CurrencyCode, PaymentProviderId } from '../../shared/types.js';
 import {
   getCrossProviderReferenceError,
   type ParsedWebhookEvent,
   type PaymentTransactionRecord,
   type PaymentTransactionStatus,
   type VerifyPaymentResponse,
-} from './types.ts';
+} from './types.js';
 
 export class CrossProviderMismatchError extends Error {
   readonly statusCode = 400;

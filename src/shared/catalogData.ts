@@ -14,7 +14,7 @@ import type {
   Store,
   WithdrawalRequest,
   DemoCustomerAccount,
-} from './types.ts';
+} from './types.js';
 
 export const DIGITAL_SUBCATEGORIES: { name: string; slug: string }[] = [
   { name: 'Website Templates', slug: 'website-templates' },

@@ -1,7 +1,7 @@
-import { signHmacToken, verifyHmacToken } from '../security.ts';
-import { LocalDevStorageAdapter } from './localStorage.ts';
-import { S3CompatibleStorageAdapter } from './s3Storage.ts';
-import type { StorageProviderAdapter, StorageProviderMode, StoredObjectResult } from './types.ts';
+import { signHmacToken, verifyHmacToken } from '../security.js';
+import { LocalDevStorageAdapter } from './localStorage.js';
+import { S3CompatibleStorageAdapter } from './s3Storage.js';
+import type { StorageProviderAdapter, StorageProviderMode, StoredObjectResult } from './types.js';
 
 interface DownloadTokenPayload {
   entitlementId: string;

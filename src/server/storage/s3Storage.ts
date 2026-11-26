@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type { StorageProviderAdapter, StoredObjectResult } from './types.ts';
+import type { StorageProviderAdapter, StoredObjectResult } from './types.js';
 
 function sha256Hex(data: string | Buffer): string {
   return crypto.createHash('sha256').update(data).digest('hex');

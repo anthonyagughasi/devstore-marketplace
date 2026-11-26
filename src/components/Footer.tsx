@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMarketplace } from '../context/MarketplaceContext.tsx';
 
 export function Footer() {
-  const { setView, enterDemoMode, notify } = useMarketplace();
+  const { setView, enterDemoMode, openDemoSelector, demoLoading, notify } = useMarketplace();
   const [email, setEmail] = useState('');
 
   return (
@@ -30,13 +30,16 @@ export function Footer() {
 
         <div className="md:col-span-2 space-y-2 text-xs">
           <p className="font-semibold text-zinc-900">Demo Mode</p>
-          <button type="button" onClick={() => enterDemoMode('customer')} className="block text-zinc-600 hover:text-zinc-900 cursor-pointer">
+          <button type="button" disabled={demoLoading} onClick={openDemoSelector} className="block text-zinc-600 hover:text-zinc-900 cursor-pointer disabled:opacity-50">
+            Explore Demo
+          </button>
+          <button type="button" disabled={demoLoading} onClick={() => enterDemoMode('customer')} className="block text-zinc-600 hover:text-zinc-900 cursor-pointer disabled:opacity-50">
             Customer Demo
           </button>
-          <button type="button" onClick={() => enterDemoMode('seller')} className="block text-zinc-600 hover:text-zinc-900 cursor-pointer">
+          <button type="button" disabled={demoLoading} onClick={() => enterDemoMode('seller')} className="block text-zinc-600 hover:text-zinc-900 cursor-pointer disabled:opacity-50">
             Seller Demo
           </button>
-          <button type="button" onClick={() => enterDemoMode('admin')} className="block text-zinc-600 hover:text-zinc-900 cursor-pointer">
+          <button type="button" disabled={demoLoading} onClick={() => enterDemoMode('admin')} className="block text-zinc-600 hover:text-zinc-900 cursor-pointer disabled:opacity-50">
             Admin Demo
           </button>
         </div>

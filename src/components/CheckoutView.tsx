@@ -6,22 +6,11 @@ import {
   XCircle,
   CreditCard,
   ShieldCheck,
-  KeyRound,
-  ExternalLink,
   RefreshCw,
 } from 'lucide-react';
 import { useMarketplace } from '../context/MarketplaceContext.tsx';
 import type { CurrencyCode, Order, PaymentProviderId } from '../shared/types.ts';
 import { convertMinorAmount, getLicenseUnitPriceMinor } from '../shared/currency.ts';
-
-interface LiveCheckoutSession {
-  provider: PaymentProviderId;
-  reference: string;
-  orderId: string;
-  authorizationUrl: string;
-  amountMinor: number;
-  currency: CurrencyCode;
-}
 
 interface LiveVerificationResult {
   configured: boolean;
@@ -47,10 +36,11 @@ export function CheckoutView() {
     currency,
     formatPrice,
     platformConfig,
-    integrations,
     isDemoMode,
     demoRole,
+    demoLoading,
     enterDemoMode,
+    openDemoSelector,
     simulateDemoCheckout,
     initializeLivePayment,
     verifyLivePayment,
@@ -84,20 +74,16 @@ export function CheckoutView() {
 
   const [submitting, setSubmitting] = useState(false);
   const [verifyingCallback, setVerifyingCallback] = useState(false);
-  const [liveCheckoutSession, setLiveCheckoutSession] = useState<LiveCheckoutSession | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<{
     order?: Order;
     paymentStatus?: string;
     liveVerification?: LiveVerificationResult;
-    liveUnconfigured?: { provider: PaymentProviderId; missingEnvVars: string[]; message: string };
   } | null>(null);
 
   const handleSelectProvider = (nextProvider: PaymentProviderId) => {
     setProvider(nextProvider);
-    setLiveCheckoutSession(null);
-    setLastResult((prev) =>
-      prev?.liveUnconfigured ? null : prev
-    );
+    setCheckoutError(null);
     setAttemptNonce(Date.now());
   };
 
@@ -124,16 +110,15 @@ export function CheckoutView() {
             provider: verifiedRes.provider || params.provider,
           },
         });
-        setLiveCheckoutSession(null);
         clearPendingPaymentCallback();
         notify(
           verifiedRes.verified
-            ? `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} payment verified.`
-            : `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} status: ${verifiedRes.status}.`,
+            ? `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} payment confirmed.`
+            : `${params.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} payment status: ${verifiedRes.status}.`,
           verifiedRes.verified ? 'success' : 'info'
         );
-      } catch (err) {
-        notify(err instanceof Error ? err.message : 'Payment verification failed.', 'error');
+      } catch {
+        notify('Unable to confirm payment status right now. Please try again.', 'error');
       } finally {
         setVerifyingCallback(false);
       }
@@ -251,8 +236,9 @@ export function CheckoutView() {
       notify('Paystack supports NGN, USD, or GBP. Select Flutterwave for EUR or switch currency.', 'error');
       return;
     }
+    const providerLabel = provider === 'flutterwave' ? 'Flutterwave' : 'Paystack';
     setSubmitting(true);
-    setLiveCheckoutSession(null);
+    setCheckoutError(null);
     try {
       const orderId = `ord-live-${Date.now()}`;
       const res = await initializeLivePayment({
@@ -263,56 +249,38 @@ export function CheckoutView() {
       });
 
       if (res.provider !== provider) {
-        throw new Error(
-          `Provider mismatch detected: expected ${provider}, received ${res.provider}.`
-        );
+        throw new Error(`Unable to start ${providerLabel} checkout right now. Please try again.`);
       }
 
-      if (!res.configured) {
-        setLastResult({
-          liveUnconfigured: {
-            provider,
-            missingEnvVars: res.missingEnvVars || [],
-            message: res.message || `${provider} credentials are required for live checkout.`,
-          },
-        });
-      } else if (res.authorizationUrl) {
-        const host = new URL(res.authorizationUrl).hostname.toLowerCase();
-        if (provider === 'flutterwave' && host.includes('paystack')) {
-          throw new Error('Blocked invalid Paystack redirect returned during Flutterwave checkout.');
-        }
-        if (provider === 'paystack' && host.includes('flutterwave')) {
-          throw new Error('Blocked invalid Flutterwave redirect returned during Paystack checkout.');
-        }
-
-        const session: LiveCheckoutSession = {
-          provider,
-          reference: res.reference,
-          orderId: res.orderId || orderId,
-          authorizationUrl: res.authorizationUrl,
-          amountMinor: totalInCheckoutCurrencyMinor,
-          currency,
-        };
-        setLiveCheckoutSession(session);
-
-        // Redirect top-level browser tabs directly to the provider's hosted checkout URL;
-        // inside embedded preview iframes, display the hosted link handoff card instead of window.open.
-        try {
-          if (window.self === window.top) {
-            window.location.assign(res.authorizationUrl);
-          }
-        } catch {
-          // Cross-origin frame: keep the hosted checkout handoff link visible
-        }
+      if (!res.configured || !res.authorizationUrl) {
+        const friendly = `${providerLabel} checkout is currently unavailable. Please choose another payment method or explore Demo Mode.`;
+        setCheckoutError(friendly);
+        notify(friendly, 'error');
+        setSubmitting(false);
+        return;
       }
-    } catch (err) {
-      notify(err instanceof Error ? err.message : 'Live payment initialization failed.', 'error');
-    } finally {
+
+      const parsedUrl = new URL(res.authorizationUrl);
+      const host = parsedUrl.hostname.toLowerCase();
+      if (
+        (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') ||
+        (provider === 'flutterwave' && host.includes('paystack')) ||
+        (provider === 'paystack' && host.includes('flutterwave'))
+      ) {
+        throw new Error(`Unable to open ${providerLabel} checkout right now. Please try again.`);
+      }
+
+      window.location.assign(res.authorizationUrl);
+      setTimeout(() => setSubmitting(false), 4000);
+    } catch {
+      const friendly = `Unable to start ${providerLabel} checkout right now. Please try again or switch payment methods.`;
+      setCheckoutError(friendly);
+      notify(friendly, 'error');
       setSubmitting(false);
     }
   };
 
-  // Dedicated DevStore Payment Callback / Verification Result View
+  // Customer-facing Payment Return & Confirmation View
   if (pendingPaymentCallback && !lastResult?.liveVerification) {
     const providerLabel =
       pendingPaymentCallback.provider === 'flutterwave' ? 'Flutterwave' : 'Paystack';
@@ -325,17 +293,16 @@ export function CheckoutView() {
             />
             <div>
               <h1 className="font-display text-2xl font-bold text-zinc-900">
-                Verifying {providerLabel} Payment
+                Confirming {providerLabel} Payment
               </h1>
-              <p className="text-xs font-mono text-zinc-500 mt-0.5">
-                Ref: {pendingPaymentCallback.reference} · Provider: {providerLabel}
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Payment method: {providerLabel}
               </p>
             </div>
           </div>
 
           <p className="text-sm text-zinc-600">
-            DevStore is verifying your {providerLabel} transaction directly with the{' '}
-            {providerLabel} server API before updating your order status.
+            Please wait while DevStore confirms your {providerLabel} transaction and updates your order.
           </p>
 
           {!firebaseUser && authReady ? (
@@ -345,7 +312,7 @@ export function CheckoutView() {
                 onClick={() => setAuthModalOpen(true)}
                 className="px-5 py-2.5 bg-zinc-900 text-white text-xs font-semibold rounded-lg cursor-pointer"
               >
-                Sign In to Complete Verification
+                Sign In to Complete Order
               </button>
               <button
                 type="button"
@@ -365,7 +332,7 @@ export function CheckoutView() {
               onClick={() => runLiveVerification(pendingPaymentCallback)}
               className="px-5 py-2.5 bg-zinc-900 text-white text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-50"
             >
-              {verifyingCallback ? 'Verifying with Server...' : `Retry ${providerLabel} Verification`}
+              {verifyingCallback ? `Confirming ${providerLabel} Payment...` : 'Refresh Payment Status'}
             </button>
           )}
         </div>
@@ -400,28 +367,30 @@ export function CheckoutView() {
                   ? `${providerLabel} Payment Pending`
                   : `${providerLabel} Payment Failed`}
               </h1>
-              <p className="text-xs font-mono text-zinc-500 mt-0.5">
-                Provider: {providerLabel} · Ref: {lv.reference}
-                {lv.orderId ? ` · Order: ${lv.orderId}` : ''}
-                {lv.providerTransactionId ? ` · Gateway Tx: ${lv.providerTransactionId}` : ''}
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Paid with {providerLabel}
+                {lv.orderId ? ` · Order ${lv.orderId}` : ''}
               </p>
             </div>
           </div>
 
           <div className="bg-stone-50 border border-zinc-200 rounded-xl p-4 text-xs text-zinc-700 space-y-1.5">
-            <p className="font-semibold text-zinc-900">Server-Side Verification Summary</p>
+            <p className="font-semibold text-zinc-900">Order Status Summary</p>
             <p>
-              Payment Status: <span className="font-mono font-semibold uppercase">{lv.status}</span>{' '}
-              · Order Status:{' '}
-              <span className="font-mono font-semibold uppercase">
+              Payment: <span className="font-semibold capitalize">{lv.status}</span> · Order:{' '}
+              <span className="font-semibold capitalize">
                 {lv.orderStatus || (isPaid ? 'processing' : 'cancelled')}
               </span>
             </p>
-            {lv.message && <p className="text-zinc-600">{lv.message}</p>}
-            <p className="text-zinc-500">
-              Verified directly against {providerLabel} via{' '}
-              <span className="font-mono">/api/payments/{lv.provider}/verify</span>.
-            </p>
+            {isPaid ? (
+              <p className="text-zinc-600">
+                Your order is confirmed and any digital licenses are unlocked in your account library.
+              </p>
+            ) : (
+              <p className="text-zinc-600">
+                No payment was captured. You can return to checkout to retry or choose another payment option.
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -638,13 +607,12 @@ export function CheckoutView() {
               </div>
             )}
 
-            {/* Payment Provider Adapter Selection */}
+            {/* Payment Provider Selection */}
             <div className="bg-white border border-zinc-200 rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="font-display text-base font-bold text-zinc-900">
                   Select Payment Method ({currency})
                 </h2>
-                <span className="text-xs font-mono text-zinc-500">Isolated Gateways</span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -653,19 +621,15 @@ export function CheckoutView() {
                     {
                       id: 'paystack',
                       label: 'Pay with Paystack',
-                      endpoint: '/api/payments/paystack/initialize',
                       desc: 'Cards, Bank Transfer, USSD, Apple Pay · NGN / USD / GBP',
                       enabled: platformConfig.paystackEnabled,
-                      configured: integrations?.paystack.configured,
                       accentClass: 'border-emerald-600 bg-emerald-50/40',
                     },
                     {
                       id: 'flutterwave',
                       label: 'Pay with Flutterwave',
-                      endpoint: '/api/payments/flutterwave/initialize',
                       desc: 'Global Cards, Mobile Money, Bank · NGN / USD / GBP / EUR',
                       enabled: platformConfig.flutterwaveEnabled,
-                      configured: integrations?.flutterwave.configured,
                       accentClass: 'border-amber-600 bg-amber-50/40',
                     },
                   ] as const
@@ -685,12 +649,8 @@ export function CheckoutView() {
                         <CreditCard className="w-4 h-4 shrink-0" />
                         {gw.label}
                       </span>
-                      <span className="text-[11px] font-mono text-zinc-600 shrink-0">
-                        {isDemoMode ? 'Demo Mode' : gw.configured ? 'Live Ready' : 'Env Required'}
-                      </span>
                     </div>
                     <p className="text-xs text-zinc-600">{gw.desc}</p>
-                    <p className="text-[11px] font-mono text-zinc-500">{gw.endpoint}</p>
                   </button>
                 ))}
               </div>
@@ -704,8 +664,9 @@ export function CheckoutView() {
                     </p>
                     <button
                       type="button"
+                      disabled={demoLoading}
                       onClick={() => enterDemoMode('customer')}
-                      className="px-3.5 py-2 bg-zinc-900 text-white text-xs font-semibold rounded-lg whitespace-nowrap cursor-pointer"
+                      className="px-3.5 py-2 bg-zinc-900 text-white text-xs font-semibold rounded-lg whitespace-nowrap cursor-pointer disabled:opacity-50"
                     >
                       Customer Demo
                     </button>
@@ -767,70 +728,9 @@ export function CheckoutView() {
                     </div>
                   )}
 
-                  {lastResult?.liveUnconfigured &&
-                    lastResult.liveUnconfigured.provider === provider && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2 text-xs text-zinc-800">
-                        <div className="flex items-center gap-2 font-semibold text-amber-900">
-                          <KeyRound className="w-4 h-4" />
-                          <span>
-                            {provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'} Credentials Required
-                          </span>
-                        </div>
-                        <p>{lastResult.liveUnconfigured.message}</p>
-                        <p className="font-mono text-[11px] bg-white border border-amber-200 rounded p-2">
-                          Required Secrets: {lastResult.liveUnconfigured.missingEnvVars.join(', ')}
-                        </p>
-                      </div>
-                    )}
-
-                  {liveCheckoutSession && liveCheckoutSession.provider === provider && (
-                    <div className="bg-stone-50 border border-zinc-300 rounded-xl p-5 space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-zinc-900 uppercase tracking-wide">
-                          {liveCheckoutSession.provider === 'flutterwave'
-                            ? 'Flutterwave Hosted Checkout Ready'
-                            : 'Paystack Checkout Session Ready'}
-                        </span>
-                        <span className="text-[11px] font-mono text-zinc-600">
-                          {liveCheckoutSession.reference}
-                        </span>
-                      </div>
-                      <p className="text-xs text-zinc-600">
-                        {liveCheckoutSession.provider === 'flutterwave'
-                          ? 'Your transaction was initialized with Flutterwave (/v3/payments). Complete payment on Flutterwave hosted checkout (`data.link`), then DevStore will verify your transaction server-side.'
-                          : 'Your transaction was initialized with Paystack (/transaction/initialize). Complete payment on Paystack checkout (`authorization_url`), then DevStore will verify your transaction server-side.'}
-                      </p>
-                      <div className="flex flex-wrap gap-2.5">
-                        <a
-                          href={liveCheckoutSession.authorizationUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 px-4 py-2.5 bg-zinc-900 hover:bg-blue-600 text-white text-xs font-semibold rounded-lg ui-transition"
-                        >
-                          <span>
-                            {liveCheckoutSession.provider === 'flutterwave'
-                              ? 'Open Flutterwave Hosted Checkout'
-                              : 'Open Paystack Checkout'}
-                          </span>
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                        <button
-                          type="button"
-                          disabled={verifyingCallback}
-                          onClick={() =>
-                            runLiveVerification({
-                              provider: liveCheckoutSession.provider,
-                              reference: liveCheckoutSession.reference,
-                            })
-                          }
-                          className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-zinc-300 hover:bg-stone-100 text-zinc-900 text-xs font-semibold rounded-lg cursor-pointer"
-                        >
-                          <RefreshCw
-                            className={`w-3.5 h-3.5 ${verifyingCallback ? 'animate-spin' : ''}`}
-                          />
-                          Verify Payment Status
-                        </button>
-                      </div>
+                  {checkoutError && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 text-xs text-red-900">
+                      {checkoutError}
                     </div>
                   )}
 
@@ -842,7 +742,7 @@ export function CheckoutView() {
                       className="flex-1 py-3 px-5 bg-zinc-900 hover:bg-blue-600 disabled:opacity-50 text-white text-sm font-semibold rounded-lg cursor-pointer ui-transition"
                     >
                       {submitting
-                        ? `Initializing ${provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'}...`
+                        ? `Redirecting to ${provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'}...`
                         : firebaseUser
                         ? `Pay ${formatPrice(totalUsdMinor, 'USD')} with ${
                             provider === 'flutterwave' ? 'Flutterwave' : 'Paystack'
@@ -853,8 +753,9 @@ export function CheckoutView() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => enterDemoMode('customer')}
-                      className="py-3 px-4 bg-stone-100 hover:bg-stone-200 text-zinc-900 text-xs font-semibold rounded-lg cursor-pointer"
+                      disabled={demoLoading}
+                      onClick={openDemoSelector}
+                      className="py-3 px-4 bg-stone-100 hover:bg-stone-200 text-zinc-900 text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-50"
                     >
                       Enter Demo Mode
                     </button>

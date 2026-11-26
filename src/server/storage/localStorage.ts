@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { resolvePrivateAssetPath } from '../security.ts';
-import type { StorageProviderAdapter, StoredObjectResult } from './types.ts';
+import { resolvePrivateAssetPath } from '../security.js';
+import type { StorageProviderAdapter, StoredObjectResult } from './types.js';
 
 export function getLocalDevStorageDir(): string {
   if (process.env.PRIVATE_STORAGE_DIR?.trim()) {

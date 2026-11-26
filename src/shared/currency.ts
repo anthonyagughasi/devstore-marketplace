@@ -1,4 +1,4 @@
-import type { CurrencyCode, LicenseType } from './types.ts';
+import type { CurrencyCode, LicenseType } from './types.js';
 
 export interface CurrencyConfig {
   code: CurrencyCode;

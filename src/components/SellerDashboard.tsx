@@ -21,7 +21,9 @@ export function SellerDashboard() {
   const {
     isDemoMode,
     demoRole,
+    demoLoading,
     enterDemoMode,
+    openDemoSelector,
     firebaseUser,
     liveRole,
     stores,
@@ -112,10 +114,11 @@ export function SellerDashboard() {
           </p>
           <button
             type="button"
-            onClick={() => enterDemoMode('seller')}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
+            disabled={demoLoading}
+            onClick={openDemoSelector}
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-50"
           >
-            Enter Demo Mode (Seller Demo)
+            Enter Demo Mode
           </button>
         </div>
       </section>
@@ -132,8 +135,9 @@ export function SellerDashboard() {
           </p>
           <button
             type="button"
+            disabled={demoLoading}
             onClick={() => enterDemoMode('seller')}
-            className="px-5 py-2.5 bg-zinc-900 text-white text-xs font-semibold rounded-lg cursor-pointer"
+            className="px-5 py-2.5 bg-zinc-900 text-white text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-50"
           >
             Seller Demo
           </button>

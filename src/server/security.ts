@@ -2,33 +2,73 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import type { Request, Response, NextFunction } from 'express';
-import { initializeApp, getApps, getApp } from 'firebase-admin/app';
-import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
-import type { UserRole } from '../shared/types.ts';
+import type { DecodedIdToken } from 'firebase-admin/auth';
+import type { UserRole } from '../shared/types.js';
 
 function getFirebaseProjectId(): string {
   if (process.env.FIREBASE_PROJECT_ID?.trim()) {
     return process.env.FIREBASE_PROJECT_ID.trim();
   }
-  const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-  if (fs.existsSync(configPath)) {
-    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8')) as { projectId?: string };
-    if (parsed.projectId) return parsed.projectId;
+  try {
+    const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
+    if (fs.existsSync(configPath)) {
+      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8')) as { projectId?: string };
+      if (parsed.projectId) return parsed.projectId;
+    }
+  } catch {
+    // Fall back safely in bundled serverless environments
   }
   return 'spatial-campaign-nlvvl';
 }
 
-// Initialize Firebase Admin strictly for verifyIdToken (needs no IAM permissions)
-const adminApp = getApps().length
-  ? getApp()
-  : initializeApp({ projectId: getFirebaseProjectId() });
-export const adminAuth = getAuth(adminApp);
+type AdminAuthInstance = ReturnType<typeof import('firebase-admin/auth')['getAuth']>;
+let cachedAdminAuth: AdminAuthInstance | null = null;
 
-// Ephemeral fallback secret if SESSION_SIGNING_SECRET is not provided in env
+/**
+ * Lazily loads Firebase Admin Auth only when verifying live production Firebase ID tokens.
+ * Keeps Demo Mode, health checks, and webhooks insulated from cold-start Admin SDK loading.
+ */
+export async function getAdminAuth(): Promise<AdminAuthInstance> {
+  if (cachedAdminAuth) return cachedAdminAuth;
+  const [{ initializeApp, getApps, getApp }, { getAuth }] = await Promise.all([
+    import('firebase-admin/app'),
+    import('firebase-admin/auth'),
+  ]);
+  const adminApp = getApps().length
+    ? getApp()
+    : initializeApp({ projectId: getFirebaseProjectId() });
+  cachedAdminAuth = getAuth(adminApp);
+  return cachedAdminAuth;
+}
+
+// Ephemeral fallback secret if SESSION_SIGNING_SECRET is not provided in local dev env
 const EPHEMERAL_SIGNING_KEY = crypto.randomBytes(32).toString('hex');
 
+export function hasExplicitSessionSecret(): boolean {
+  return Boolean(process.env.SESSION_SIGNING_SECRET?.trim());
+}
+
 function getSigningSecret(): string {
-  return process.env.SESSION_SIGNING_SECRET?.trim() || EPHEMERAL_SIGNING_KEY;
+  const configured = process.env.SESSION_SIGNING_SECRET?.trim();
+  if (configured) return configured;
+
+  // On serverless platforms like Vercel, separate invocations in the same deployment share
+  // deployment-scoped metadata. Deriving a deployment-scoped fallback key keeps Demo Mode
+  // HMAC tokens consistent across cold starts and multiple serverless containers.
+  const deploymentSeed =
+    process.env.VERCEL_DEPLOYMENT_ID?.trim() ||
+    process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+    process.env.VERCEL_PROJECT_ID?.trim() ||
+    process.env.VERCEL_URL?.trim();
+
+  if (deploymentSeed) {
+    return crypto
+      .createHmac('sha256', deploymentSeed)
+      .update(`devstore-serverless:${getFirebaseProjectId()}`)
+      .digest('hex');
+  }
+
+  return EPHEMERAL_SIGNING_KEY;
 }
 
 export interface SignedTokenPayload {
@@ -111,6 +151,7 @@ export async function requireProductionAuth(
   }
 
   try {
+    const adminAuth = await getAdminAuth();
     const decoded = await adminAuth.verifyIdToken(token);
     req.prodUser = decoded;
     return next();
@@ -156,7 +197,13 @@ export function createRateLimiter(maxRequests: number, windowMs: number) {
   const hits = new Map<string, number[]>();
 
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = req.ip || req.socket.remoteAddress || 'unknown';
+    const forwarded = req.headers['x-forwarded-for'];
+    const forwardedIp = Array.isArray(forwarded)
+      ? forwarded[0]
+      : typeof forwarded === 'string'
+      ? forwarded.split(',')[0]?.trim()
+      : undefined;
+    const key = req.ip || forwardedIp || req.socket?.remoteAddress || 'unknown';
     const now = Date.now();
     const cutoff = now - windowMs;
     const timestamps = (hits.get(key) || []).filter((t) => t > cutoff);
@@ -169,6 +216,11 @@ export function createRateLimiter(maxRequests: number, windowMs: number) {
 
     timestamps.push(now);
     hits.set(key, timestamps);
+    if (hits.size > 1000) {
+      for (const [k, v] of hits.entries()) {
+        if (!v.some((t) => t > cutoff)) hits.delete(k);
+      }
+    }
     return next();
   };
 }

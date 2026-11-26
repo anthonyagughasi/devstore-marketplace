@@ -8,8 +8,8 @@ export function StorefrontHome() {
   const {
     setView,
     isDemoMode,
-    enterDemoMode,
-    setAuthModalOpen,
+    demoLoading,
+    openDemoSelector,
     products,
     stores,
     recentlyViewedIds,
@@ -51,28 +51,30 @@ export function StorefrontHome() {
               {!isDemoMode ? (
                 <button
                   type="button"
-                  onClick={() => enterDemoMode('customer')}
-                  className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg whitespace-nowrap shrink-0 cursor-pointer ui-transition"
+                  disabled={demoLoading}
+                  onClick={openDemoSelector}
+                  className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg whitespace-nowrap shrink-0 cursor-pointer ui-transition disabled:opacity-50"
                 >
-                  Enter Demo Mode
+                  Explore Demo
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => setView('digital')}
-                  className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg whitespace-nowrap shrink-0 cursor-pointer ui-transition"
-                >
-                  Explore Digital Department
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setView('digital')}
+                    className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg whitespace-nowrap shrink-0 cursor-pointer ui-transition"
+                  >
+                    Explore Digital Department
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openDemoSelector}
+                    className="inline-flex items-center px-4 py-3 text-sm font-medium text-zinc-700 hover:text-zinc-900 underline underline-offset-4 whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    Switch Demo Role
+                  </button>
+                </>
               )}
-
-              <button
-                type="button"
-                onClick={() => setAuthModalOpen(true)}
-                className="inline-flex items-center px-4 py-3 text-sm font-medium text-zinc-700 hover:text-zinc-900 underline underline-offset-4 whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                {isDemoMode ? 'Switch Demo Role' : 'Explore Demo'}
-              </button>
             </div>
           </div>
 

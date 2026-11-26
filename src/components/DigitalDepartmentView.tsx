@@ -5,7 +5,7 @@ import { DIGITAL_SUBCATEGORIES } from '../shared/catalogData.ts';
 import { ProductCard } from './ProductCard.tsx';
 
 export function DigitalDepartmentView() {
-  const { products, setView, isDemoMode, enterDemoMode } = useMarketplace();
+  const { products, setView, isDemoMode, demoLoading, openDemoSelector } = useMarketplace();
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchText, setSearchText] = useState('');
 
@@ -54,8 +54,9 @@ export function DigitalDepartmentView() {
               ) : (
                 <button
                   type="button"
-                  onClick={() => enterDemoMode('customer')}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg cursor-pointer"
+                  disabled={demoLoading}
+                  onClick={openDemoSelector}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-50"
                 >
                   <Download className="w-4 h-4" />
                   Explore Demo Download Library

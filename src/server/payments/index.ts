@@ -1,10 +1,10 @@
-import type { PaymentProviderId } from '../../shared/types.ts';
-import { getEmailProviderStatus } from '../email/resendAdapter.ts';
-import { getStorageStatus } from '../storage/privateDownloads.ts';
-import { flutterwaveService, FlutterwavePaymentService } from './flutterwave.ts';
-import { paystackService, PaystackPaymentService } from './paystack.ts';
-import { CrossProviderMismatchError, paymentTransactionStore } from './transactions.ts';
-import { IdempotencyRegistry, type PaymentProviderAdapter, type ParsedWebhookEvent } from './types.ts';
+import type { PaymentProviderId } from '../../shared/types.js';
+import { getEmailProviderStatus } from '../email/resendAdapter.js';
+import { getStorageStatus } from '../storage/privateDownloads.js';
+import { flutterwaveService, FlutterwavePaymentService } from './flutterwave.js';
+import { paystackService, PaystackPaymentService } from './paystack.js';
+import { CrossProviderMismatchError, paymentTransactionStore } from './transactions.js';
+import { IdempotencyRegistry, type PaymentProviderAdapter, type ParsedWebhookEvent } from './types.js';
 
 export const paymentProviders: Record<PaymentProviderId, PaymentProviderAdapter> = {
   paystack: paystackService.adapter,
